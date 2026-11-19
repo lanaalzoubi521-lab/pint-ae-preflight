@@ -7,4 +7,9 @@ const app = ['src/rules.js', 'src/data.js', 'src/ubl.js', 'src/app.js'].map(stri
 const html = readFileSync('index.html', 'utf8').replace('/*FONTS*/', fonts).replace('/*APP*/', app);
 mkdirSync('dist', { recursive: true });
 writeFileSync('dist/index.html', html);
+// Public build (GitHub Pages): same page, locked down with a Content Security Policy.
+// No network access at all: invoice data cannot leave the browser even if a script were injected.
+const CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; font-src data:; img-src data: blob:; connect-src 'none'; form-action 'none'; base-uri 'none'";
+mkdirSync('docs', { recursive: true });
+writeFileSync('docs/index.html', html.replace('<meta charset="utf-8">', `<meta charset="utf-8">\n<meta http-equiv="Content-Security-Policy" content="${CSP}">\n<meta name="referrer" content="no-referrer">`));
 console.log('dist/index.html', (html.length / 1024).toFixed(0) + ' KB');

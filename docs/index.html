@@ -2,6 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; font-src data:; img-src data: blob:; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PINT-AE Preflight</title>
 <meta name="description" content="Check ERP invoice data against the UAE e-invoicing rules before your ASP rejects it.">
@@ -145,7 +147,14 @@ table.mini th,table.mini td{padding:8px 10px;font-size:12.5px}
 .flist li:first-child{border-top:0}
 .flist .mono{flex:none;width:118px}
 #toast{position:fixed;bottom:22px;left:50%;transform:translate(-50%,20px);background:var(--ink);color:#fff;font-size:13px;padding:9px 14px;border-radius:8px;opacity:0;transition:.25s;z-index:60;pointer-events:none}
-#toast.on{opacity:1;transform:translate(-50%,0)}
+#toast.on{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+#toast{display:flex;gap:14px;align-items:center}#toast button{color:#A5B4FC;font-weight:500}
+.maprows{border:1px solid var(--line);border-radius:8px;margin-bottom:6px}
+.maprow{display:grid;grid-template-columns:1fr 1.2fr;gap:12px;align-items:center;padding:8px 12px;border-top:1px solid var(--line2);font-size:13px;text-transform:capitalize}
+.maprow:first-child{border-top:0}.maprow b{color:var(--bad)}
+.maprow input,.maprow select{height:30px;border:1px solid var(--line);border-radius:6px;padding:0 8px;background:var(--panel);font:inherit;text-transform:none}
+#map-go{margin-top:16px}
+.exp{flex-wrap:wrap}
 .rules td:first-child{width:170px}
 .exp{display:flex;gap:10px;margin-bottom:14px}
 @media(max-width:900px){
@@ -167,12 +176,13 @@ table.mini th,table.mini td{padding:8px 10px;font-size:12.5px}
 <div class="app">
   <aside class="side">
     <div class="brand"><span class="mk"><span></span></span>PINT-AE Preflight</div>
-    <div class="org"><span class="av">RH</span><div style="min-width:0"><b id="src-name">Raml Home Trading LLC</b><span id="src-meta"></span></div></div>
+    <div class="org"><span class="av" id="org-av">RH</span><div style="min-width:0"><b id="src-name">Raml Home Trading LLC</b><span id="src-meta"></span></div></div>
     <nav>
       <a href="#" data-nav="overview" class="on"><span><svg viewBox="0 0 16 16"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg>Overview</span></a>
       <a href="#" data-nav="issues"><span><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M8 5v3.5M8 11h.01"/></svg>Issues</span><i id="n-issues"></i></a>
       <a href="#" data-nav="invoices"><span><svg viewBox="0 0 16 16"><path d="M4 2h6l3 3v9H4z"/><path d="M6 8h5M6 11h5"/></svg>Invoices</span><i id="n-inv"></i></a>
       <a href="#" data-nav="activity"><span><svg viewBox="0 0 16 16"><path d="M2 8h3l2-4 2 8 2-4h3"/></svg>Activity &amp; export</span></a>
+      <a href="#" data-nav="company"><span><svg viewBox="0 0 16 16"><path d="M3 14V4l5-2 5 2v10"/><path d="M6 14v-3h4v3M6 6h1M9 6h1M6 8.5h1M9 8.5h1"/></svg>Company details</span></a>
       <div class="navg">Reference</div>
       <a href="#" data-nav="rules"><span><svg viewBox="0 0 16 16"><path d="M3 3h10v10H3z"/><path d="M6 6h4M6 9h4"/></svg>Rules checked</span></a>
     </nav>
@@ -182,7 +192,7 @@ table.mini th,table.mini td{padding:8px 10px;font-size:12.5px}
   <main>
     <div class="top">
       <button id="burger" aria-label="Menu">≡</button>
-      <div class="crumbs">Raml Home <span class="hide-s">/ E-invoicing readiness</span> / <b id="crumb">Overview</b></div>
+      <div class="crumbs"><span id="crumb-org">Raml Home</span> <span class="hide-s">/ E-invoicing readiness</span> / <b id="crumb">Overview</b></div>
       <label class="search"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></svg><input id="search" placeholder="Search invoices, customers, items"><kbd>/</kbd></label>
       <button class="btn hide-m" id="rerun">Re-run check</button>
       <label class="btn dark">Upload ERP export<input type="file" id="file" accept=".csv,text/csv"></label>
@@ -226,9 +236,15 @@ table.mini th,table.mini td{padding:8px 10px;font-size:12.5px}
 
       <section class="page" id="pg-activity" hidden>
         <div class="ph"><div><h1>Activity &amp; export</h1><p>Every approved change, and the files to hand over.</p></div></div>
-        <div class="exp"><button class="btn dark" id="exp-csv">Download corrected CSV</button><button class="btn" id="exp-log">Download approval log</button></div>
-        <p class="mute" style="margin-bottom:14px"><b id="exp-n" style="color:var(--ink)">0</b> invoices are ready. Download each one as PINT AE XML from the Invoices page.</p>
+        <div class="exp"><button class="btn dark" id="exp-zip">Download ready invoices (XML, zip)</button><button class="btn" id="exp-report">Readiness report</button><button class="btn" id="exp-csv">Corrected CSV</button><button class="btn" id="exp-log">Approval log</button></div>
+        <p class="mute" style="margin-bottom:14px"><b id="exp-n" style="color:var(--ink)">0</b> invoices are ready. The readiness report is one page for the finance manager, ready to print.</p>
         <div class="card"><table><thead><tr><th>Time</th><th>Reviewer</th><th>Change</th><th class="num">Invoices cleared</th></tr></thead><tbody id="log"></tbody></table></div>
+      </section>
+
+      <section class="page" id="pg-company" hidden>
+        <div class="ph"><div><h1>Company details</h1><p>Your own details appear on every invoice. Enter them once instead of exporting them on every row. Saved in this browser only.</p></div></div>
+        <div class="card" style="max-width:640px;padding:6px 0"><div class="maprows" id="co-form" style="border:0;margin:0"></div></div>
+        <button class="btn dark" id="co-save" style="margin-top:14px">Save and re-check</button>
       </section>
 
       <section class="page" id="pg-rules" hidden>
@@ -344,6 +360,26 @@ function validateInvoice(inv) {
     if (blank(inv[key])) out.push(f(rule, inv, source, recordKey(source, inv), key, `${label} is missing.`));
   }
 
+  if (inv._duplicate)
+    out.push(f('MF-01', inv, 'document', inv.invoice_no, 'invoice_no', `Invoice number ${inv.invoice_no} is used by more than one document. Invoice numbers must be unique.`));
+
+  for (const [key, rule, label] of [['invoice_date', 'MF-02', 'Invoice date'], ['due_date', 'MF-06', 'Payment due date']]) {
+    const v = String(inv[key] || '').trim();
+    if (v && !(/^\d{4}-\d{2}-\d{2}$/.test(v) && !isNaN(Date.parse(v + 'T00:00:00Z')) && new Date(v + 'T00:00:00Z').toISOString().slice(0, 10) === v))
+      out.push(f(rule, inv, 'document', inv.invoice_no, key, `${label} "${v}" must be a real date in the format YYYY-MM-DD.`));
+  }
+
+  if (!blank(inv.currency) && !/^[A-Z]{3}$/.test(String(inv.currency).trim()))
+    out.push(f('MF-04', inv, 'document', inv.invoice_no, 'currency', `Currency "${inv.currency}" must be a 3-letter ISO 4217 code such as AED.`));
+
+  // ibr-055-ae: credit notes must reference the invoice they correct
+  if ((type === '381' || type === '81') && blank(inv.preceding_invoice))
+    out.push(f('ibr-055-ae', inv, 'document', inv.invoice_no, 'preceding_invoice', 'Credit note does not reference the invoice it corrects.'));
+
+  // UAE buyers are addressed on the network by their TIN (scheme 0235)
+  if (inv.buyer_country === 'AE' && !blank(inv.buyer_endpoint) && !/^1\d{9}$/.test(String(inv.buyer_endpoint)))
+    out.push(f('MF-22', inv, 'customer', recordKey('customer', inv), 'buyer_endpoint', `Buyer electronic address "${inv.buyer_endpoint}" must be the buyer's 10-digit TIN (1XXXXXXXXX).`));
+
   if (!blank(type) && !INVOICE_TYPES[type])
     out.push(f('MF-03', inv, 'document', inv.invoice_no, 'type_code', `Invoice type code "${type}" is not in the PINT AE code list.`));
 
@@ -407,6 +443,8 @@ function validateInvoice(inv) {
     for (const [rule, key, label, source] of LINE_MANDATORY) {
       if (blank(l[key])) out.push(f(rule, inv, source, recordKey(source, inv, l), key, `${label} is missing on ${lineRef}.`, { line: l.line_id }));
     }
+    for (const k of ['qty', 'net_price', 'line_net', 'tax_rate', 'gross_price', 'base_qty'])
+      if (!blank(l[k]) && isNaN(Number(l[k]))) out.push(f(k === 'qty' ? 'MF-40' : 'MF-42', inv, 'document', inv.invoice_no, k, `${lineRef}: "${l[k]}" in ${k} is not a number.`, { line: l.line_id }));
     if (blank(l.line_id)) out.push(f('MF-39', inv, 'document', inv.invoice_no, 'line_id', 'Invoice line identifier is missing.'));
 
     // ibr-125-ae item description
@@ -480,8 +518,30 @@ function applyFix(invoices, group) {
   });
 }
 
-// CSV in, invoices out. One CSV row = one invoice line; header columns repeat per line.
-function parseCSV(text) {
+// Import pipeline: bytes -> text -> rows -> mapped columns -> invoices.
+// Built for real ERP exports: Excel CSVs in Windows-1256, semicolon delimiters, BOMs,
+// thousands separators, Arabic digits, and column names that differ per system.
+
+const LIMITS = { bytes: 20 * 1024 * 1024, rows: 200000 };
+
+function decodeBytes(buf) {
+  const u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  if (u8.length > LIMITS.bytes) throw new ImportError(`File is ${(u8.length / 1048576).toFixed(1)} MB. The limit is ${LIMITS.bytes / 1048576} MB. Split the export by month.`);
+  try { return { text: stripBom(new TextDecoder('utf-8', { fatal: true }).decode(u8)), encoding: 'UTF-8' }; }
+  catch { return { text: stripBom(new TextDecoder('windows-1256').decode(u8)), encoding: 'Windows-1256' }; }
+}
+const stripBom = t => (t.charCodeAt(0) === 0xfeff ? t.slice(1) : t);
+
+class ImportError extends Error {}
+
+function detectDelimiter(text) {
+  const first = text.slice(0, text.search(/\r?\n/) >>> 0 || 2000);
+  const counts = [',', ';', '\t'].map(d => [d, first.split(d).length - 1]);
+  counts.sort((a, b) => b[1] - a[1]);
+  return counts[0][1] > 0 ? counts[0][0] : ',';
+}
+
+function parseCSV(text, delim = detectDelimiter(text)) {
   const rows = [];
   let row = [], cell = '', q = false;
   for (let i = 0; i < text.length; i++) {
@@ -491,44 +551,139 @@ function parseCSV(text) {
       else if (c === '"') q = false;
       else cell += c;
     } else if (c === '"') q = true;
-    else if (c === ',') { row.push(cell); cell = ''; }
+    else if (c === delim) { row.push(cell); cell = ''; }
     else if (c === '\n' || c === '\r') {
       if (c === '\r' && text[i + 1] === '\n') i++;
       row.push(cell); cell = '';
       if (row.some(v => v !== '')) rows.push(row);
+      if (rows.length > LIMITS.rows + 1) throw new ImportError(`More than ${LIMITS.rows.toLocaleString()} rows. Split the export by month.`);
       row = [];
     } else cell += c;
   }
   row.push(cell);
   if (row.some(v => v !== '')) rows.push(row);
+  if (rows.length < 2) throw new ImportError('The file has no data rows.');
   const [head, ...body] = rows;
-  return body.map(r => Object.fromEntries(head.map((h, i) => [h.trim(), (r[i] ?? '').trim()])));
+  return { columns: head.map(h => h.trim()), rows: body.map(r => Object.fromEntries(head.map((h, i) => [h.trim(), (r[i] ?? '').trim()]))) };
 }
 
 const LINE_FIELDS = ['line_id', 'item_code', 'item_name', 'item_description', 'qty', 'uom', 'net_price', 'gross_price', 'base_qty', 'line_net', 'tax_category', 'tax_rate', 'line_vat_aed', 'line_amount_aed'];
+const HEADER_FIELDS = ['invoice_no', 'invoice_date', 'type_code', 'currency', 'transaction_flags', 'due_date', 'payment_means', 'preceding_invoice',
+  'seller_name', 'seller_tin', 'seller_trn', 'seller_legal_id', 'seller_legal_type', 'seller_address', 'seller_city', 'seller_subdivision', 'seller_country', 'accounting_currency',
+  'buyer_name', 'buyer_endpoint', 'buyer_trn', 'buyer_vat_registered', 'buyer_address', 'buyer_city', 'buyer_subdivision', 'buyer_country'];
+const FIELDS = [...HEADER_FIELDS, ...LINE_FIELDS];
+// Without these the file cannot be read as invoices at all. Everything else is checked by the rules.
+const SELLER_FIELDS = ['seller_name', 'seller_tin', 'seller_trn', 'seller_legal_id', 'seller_legal_type', 'seller_address', 'seller_city', 'seller_subdivision', 'seller_country'];
+// Seller details are the same on every invoice, so they can be entered once instead of exported per row.
+function applyCompany(invoices, company) {
+  if (!company) return invoices;
+  return invoices.map(inv => { const o = { ...inv }; for (const f of SELLER_FIELDS) if (!o[f] && company[f]) o[f] = company[f]; return o; });
+}
+const REQUIRED = ['invoice_no', 'invoice_date', 'type_code', 'buyer_name', 'qty', 'net_price', 'line_net', 'tax_category', 'tax_rate'];
+const NUMERIC = ['qty', 'net_price', 'gross_price', 'base_qty', 'line_net', 'tax_rate', 'line_vat_aed', 'line_amount_aed'];
 
-function rowsToInvoices(rows) {
-  const map = new Map();
-  for (const r of rows) {
-    if (!map.has(r.invoice_no)) {
-      const head = {};
-      for (const [k, v] of Object.entries(r)) if (!LINE_FIELDS.includes(k)) head[k] = v;
-      map.set(r.invoice_no, { ...head, lines: [] });
-    }
-    const line = {};
-    for (const k of LINE_FIELDS) line[k] = r[k] ?? '';
-    map.get(r.invoice_no).lines.push(line);
+// Common names ERPs give the same column. Matching is case and punctuation insensitive.
+const SYNONYMS = {
+  invoice_no: ['invoice', 'invoice number', 'invoice id', 'invoiceid', 'document no', 'doc no', 'number', 'رقم الفاتورة'],
+  invoice_date: ['date', 'issue date', 'invoice date', 'document date', 'تاريخ الفاتورة', 'التاريخ'],
+  type_code: ['type', 'invoice type', 'document type'],
+  currency: ['currency code', 'currency', 'العملة'],
+  due_date: ['due', 'payment due date', 'due date', 'تاريخ الاستحقاق'],
+  buyer_name: ['customer', 'customer name', 'buyer', 'client', 'العميل', 'اسم العميل'],
+  buyer_trn: ['customer trn', 'customer vat', 'buyer vat', 'trn'],
+  buyer_endpoint: ['customer tin', 'buyer tin', 'peppol id', 'endpoint'],
+  item_code: ['sku', 'item', 'item number', 'product code', 'item id'],
+  item_name: ['product', 'product name', 'item name', 'description short', 'الصنف'],
+  item_description: ['description', 'item description', 'line description', 'الوصف'],
+  qty: ['quantity', 'qty', 'الكمية'],
+  uom: ['unit', 'unit of measure', 'uom', 'الوحدة'],
+  net_price: ['unit price', 'price', 'net price', 'سعر الوحدة'],
+  gross_price: ['gross price', 'list price'],
+  line_net: ['line amount', 'line total', 'net amount', 'amount', 'line net', 'المبلغ'],
+  tax_category: ['vat category', 'tax category', 'tax code', 'vat code'],
+  tax_rate: ['vat rate', 'tax rate', 'vat %', 'vat', 'نسبة الضريبة'],
+};
+const norm = s => String(s).toLowerCase().replace(/[_\-\s.:/()%]+/g, ' ').trim();
+
+function guessMapping(columns) {
+  const map = {};
+  const byNorm = new Map(columns.map(c => [norm(c), c]));
+  for (const f of FIELDS) {
+    if (byNorm.has(norm(f))) { map[f] = byNorm.get(norm(f)); continue; }
+    for (const syn of SYNONYMS[f] || []) if (byNorm.has(norm(syn))) { map[f] = byNorm.get(norm(syn)); break; }
   }
-  return [...map.values()];
+  return map;
+}
+const missingRequired = map => REQUIRED.filter(f => !map[f]);
+
+const AR_DIGITS = '٠١٢٣٤٥٦٧٨٩';
+function normalizeNumber(v) {
+  let s = String(v ?? '').trim().replace(/[٠-٩]/g, d => AR_DIGITS.indexOf(d)).replace(/[\s ]/g, '');
+  if (!s) return '';
+  if (/^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(s)) s = s.replace(/,/g, '');          // 1,234.50
+  else if (/^-?\d{1,3}(\.\d{3})+(,\d+)?$/.test(s)) s = s.replace(/\./g, '').replace(',', '.'); // 1.234,50
+  else if (/^-?\d+,\d+$/.test(s)) s = s.replace(',', '.');                         // 12,5
+  return s;
 }
 
+// Applies a column mapping and builds invoices. Same invoice number with a different
+// buyer or date is a second document, not more lines: it is kept and flagged.
+function rowsToInvoices(rows, mapping = null) {
+  const map = new Map(), out = [];
+  for (const raw of rows) {
+    const r = {};
+    for (const f of FIELDS) { const col = mapping ? mapping[f] : f; r[f] = col ? (raw[col] ?? '') : ''; }
+    for (const f of NUMERIC) r[f] = normalizeNumber(r[f]);
+    const key = r.invoice_no;
+    let inv = map.get(key);
+    if (inv && (inv.buyer_name !== r.buyer_name || inv.invoice_date !== r.invoice_date)) { inv._duplicate = true; inv = null; }
+    if (!inv) {
+      const head = {}; for (const f of HEADER_FIELDS) head[f] = r[f];
+      inv = { ...head, lines: [] };
+      if (map.has(key)) { inv._duplicate = true; map.get(key)._duplicate = true; }
+      map.set(key, inv); out.push(inv);
+    }
+    const line = {}; for (const f of LINE_FIELDS) line[f] = r[f];
+    if (!line.line_id) line.line_id = String(inv.lines.length + 1); // ERPs rarely export it; position is a valid identifier
+    inv.lines.push(line);
+  }
+  return out;
+}
+
+// CSV out. Cells that a spreadsheet would run as a formula are neutralised.
+function safeCell(v) {
+  let s = String(v ?? '');
+  if (/^[=+\-@\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s)) s = "'" + s;
+  return /[",\n\r;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
 function invoicesToCSV(invoices) {
-  const headKeys = Object.keys(invoices[0]).filter(k => k !== 'lines');
-  const cols = [...headKeys, ...LINE_FIELDS];
-  const esc = v => (/[",\n]/.test(String(v ?? '')) ? `"${String(v).replace(/"/g, '""')}"` : String(v ?? ''));
-  const out = [cols.join(',')];
-  for (const inv of invoices) for (const l of inv.lines) out.push(cols.map(c => esc(LINE_FIELDS.includes(c) ? l[c] : inv[c])).join(','));
+  const out = [FIELDS.join(',')];
+  for (const inv of invoices) for (const l of inv.lines) out.push(FIELDS.map(c => safeCell(LINE_FIELDS.includes(c) ? l[c] : inv[c])).join(','));
   return out.join('\n');
+}
+
+// Minimal ZIP writer (stored, no compression) so all ready invoices download as one file.
+const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+const crc32 = b => { let c = 0xffffffff; for (let i = 0; i < b.length; i++) c = CRC[(c ^ b[i]) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+function zip(files) {
+  const enc = new TextEncoder(), parts = [], dir = [];
+  let off = 0;
+  for (const f of files) {
+    const name = enc.encode(f.name), data = enc.encode(f.text), crc = crc32(data);
+    const h = new DataView(new ArrayBuffer(30));
+    h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true); h.setUint32(14, crc, true);
+    h.setUint32(18, data.length, true); h.setUint32(22, data.length, true); h.setUint16(26, name.length, true);
+    parts.push(new Uint8Array(h.buffer), name, data);
+    const d = new DataView(new ArrayBuffer(46));
+    d.setUint32(0, 0x02014b50, true); d.setUint16(4, 20, true); d.setUint16(6, 20, true); d.setUint16(8, 0x0800, true); d.setUint32(16, crc, true);
+    d.setUint32(20, data.length, true); d.setUint32(24, data.length, true); d.setUint16(28, name.length, true); d.setUint32(42, off, true);
+    dir.push(new Uint8Array(d.buffer), name);
+    off += 30 + name.length + data.length;
+  }
+  const size = dir.reduce((a, p) => a + p.length, 0);
+  const e = new DataView(new ArrayBuffer(22));
+  e.setUint32(0, 0x06054b50, true); e.setUint16(8, files.length, true); e.setUint16(10, files.length, true); e.setUint32(12, size, true); e.setUint32(16, off, true);
+  return new Blob([...parts, ...dir, new Uint8Array(e.buffer)], { type: 'application/zip' });
 }
 
 // Demo dataset: Raml Home, a fictional Dubai homeware retailer.
@@ -721,7 +876,7 @@ const WHY = {
 const RULE_URL = id => (id.startsWith('MF') ? 'https://mof.gov.ae/wp-content/uploads/2026/02/UAE-Electronic-Invoice-mandatory-fields_V-1.0-23Feb2026.pdf' : `https://docs.peppol.eu/poac/ae/pint-ae/trn-invoice/rule/${id}/`);
 const XML_HINT = { buyer_subdivision: 'CountrySubentity', seller_subdivision: 'CountrySubentity', uom: 'unitCode', item_description: 'cbc:Description', due_date: 'IssueDate', buyer_trn: 'PartyTaxScheme', line_net: 'LineExtensionAmount', tax_rate: 'cbc:Percent', transaction_flags: 'ProfileExecutionID', base_qty: 'BaseQuantity', gross_price: 'BaseAmount' };
 
-const S = { invoices: [], report: null, log: [], view: 'overview', invFilter: 'all', q: '', open: null, source: 'Raml Home Trading LLC', loadedAt: null };
+const S = { raw: [], company: null, invoices: [], report: null, log: [], undo: [], mapping: null, pending: null, view: 'overview', invFilter: 'all', q: '', open: null, source: 'Raml Home Trading LLC', loadedAt: null };
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const aed = v => 'AED ' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -730,6 +885,7 @@ const sevOf = g => (g.fix ? 'fixable' : 'manual');
 
 function run() { S.report = validateBatch(S.invoices); render(); }
 function load(invoices, label) {
+  S.raw = invoices; invoices = applyCompany(invoices, S.company);
   S.invoices = invoices; S.log = []; S.source = label; S.loadedAt = new Date();
   document.body.classList.remove('empty');
   run(); nav('overview');
@@ -739,7 +895,8 @@ function nav(v) {
   S.view = v;
   document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('on', a.dataset.nav === v));
   document.querySelectorAll('.page').forEach(p => p.hidden = p.id !== 'pg-' + v);
-  $('#crumb').textContent = { overview: 'Overview', issues: 'Issues', invoices: 'Invoices', activity: 'Activity', rules: 'Rules' }[v];
+  $('#crumb').textContent = { overview: 'Overview', issues: 'Issues', invoices: 'Invoices', activity: 'Activity', rules: 'Rules', company: 'Company details' }[v];
+  if (v === 'company') renderCompany();
   render();
 }
 
@@ -751,6 +908,8 @@ function render() {
   const blockedValue = S.invoices.filter(i => r.findings.some(f => f.invoice === i.invoice_no)).reduce((a, i) => a + total(i), 0);
   // sidebar
   $('#src-name').textContent = S.source;
+  $('#org-av').textContent = (S.company?.seller_name || S.source).replace(/[^A-Za-z\u0600-\u06FF ]/g, '').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase() || 'PF';
+  $('#crumb-org').textContent = S.company?.seller_name || S.source;
   $('#src-meta').textContent = `${r.total} invoices · loaded ${S.loadedAt.toTimeString().slice(0, 5)}`;
   $('#n-issues').textContent = r.groups.length; $('#n-inv').textContent = r.total;
   // overview
@@ -782,7 +941,7 @@ function render() {
     <td>${bad.has(i.invoice_no) ? `<span class="st st-bad">Blocked</span>` : `<span class="st st-ok">Ready</span>`}</td>
     <td class="num mute hide-s">${bad.get(i.invoice_no) || ''}</td>
     <td class="act">${bad.has(i.invoice_no) ? '' : `<button class="ghost sm" data-xml="${esc(i.invoice_no)}">XML</button>`}</td></tr>`).join('');
-  document.querySelectorAll('[data-xml]').forEach(b => b.onclick = e => { e.stopPropagation(); dl(`${b.dataset.xml}.xml`, toUBL(S.invoices.find(i => i.invoice_no === b.dataset.xml)), 'application/xml'); });
+  document.querySelectorAll('[data-xml]').forEach(b => b.onclick = e => { e.stopPropagation(); dl(`${b.dataset.xml.replace(/[^\w.-]/g, '_')}.xml`, toUBL(S.invoices.find(i => i.invoice_no === b.dataset.xml)), 'application/xml'); });
   document.querySelectorAll('[data-inv]').forEach(tr => tr.onclick = () => openInvoice(tr.dataset.inv));
   // activity
   $('#log').innerHTML = S.log.length ? S.log.map(l => `<tr><td class="mono mute">${esc(l.time)}</td><td>${esc(l.who)}</td><td>${esc(l.text)}</td><td class="num">${l.cleared ? `−${l.cleared}` : ''}</td></tr>`).join('') : `<tr><td colspan="4" class="emptyrow">No changes approved yet.</td></tr>`;
@@ -867,24 +1026,105 @@ function openInvoice(no) {
     ${inv.lines.map(l => `<tr><td>${esc(l.item_name)}</td><td class="num">${esc(l.qty)}</td><td class="mono">${esc(l.uom)}</td><td class="num">${Number(l.line_net).toFixed(2)}</td></tr>`).join('')}</tbody></table>
     <div class="sec">${fs.length ? `${fs.length} issue${fs.length > 1 ? 's' : ''}` : 'Validation'}</div>
     ${fs.length ? `<ul class="flist">${fs.map(f => `<li><span class="mono mute">${esc(f.rule)}</span>${esc(f.message)}</li>`).join('')}</ul>` : `<p class="dr-p">Passes every check. Ready to hand to your ASP.</p><button class="primary" id="dr-xml">Download PINT AE XML</button>`}`);
-  const b = $('#dr-xml'); if (b) b.onclick = () => dl(`${no}.xml`, toUBL(inv), 'application/xml');
+  const b = $('#dr-xml'); if (b) b.onclick = () => dl(`${no.replace(/[^\w.-]/g, '_')}.xml`, toUBL(inv), 'application/xml');
 }
 
 function approve(g) {
   if (!g?.fix) return;
   const before = S.report.failing;
+  S.undo.push(S.invoices);
   S.invoices = applyFix(S.invoices, g);
   S.report = validateBatch(S.invoices);
   const t = new Date();
   S.log.unshift({ time: t.toISOString().slice(0, 16).replace('T', ' '), who: 'Finance reviewer', text: `${SOURCES[g.source]} · ${g.record}: ${g.field} set to ${g.fix.value}`, cleared: before - S.report.failing });
-  closeDrawer(); render(); toast(`${before - S.report.failing} invoices cleared`);
+  closeDrawer(); render(); toast(`${before - S.report.failing} invoices cleared`, 'Undo', undo);
 }
 
-function toast(t) { const el = $('#toast'); el.textContent = t; el.classList.add('on'); clearTimeout(toast.h); toast.h = setTimeout(() => el.classList.remove('on'), 2400); }
+function toast(t, label, fn) {
+  const el = $('#toast'); el.innerHTML = `<span>${esc(t)}</span>${label ? `<button>${esc(label)}</button>` : ''}`;
+  if (label) el.querySelector('button').onclick = () => { el.classList.remove('on'); fn(); };
+  el.classList.add('on'); clearTimeout(toast.h); toast.h = setTimeout(() => el.classList.remove('on'), label ? 6000 : 2600);
+}
+function undo() {
+  if (!S.undo.length) return;
+  S.invoices = S.undo.pop(); const l = S.log.shift();
+  S.log.unshift({ time: new Date().toISOString().slice(0, 16).replace('T', ' '), who: 'Finance reviewer', text: `Undone: ${l ? l.text : 'last change'}`, cleared: 0 });
+  run(); toast('Change undone');
+}
+
+// Import: decode, detect delimiter, map columns (remembered per column set), then load.
+async function importFile(f) {
+  try {
+    const { text, encoding } = decodeBytes(await f.arrayBuffer());
+    const { columns, rows } = parseCSV(text);
+    const sig = 'pf-map:' + columns.join('|');
+    let map = null; try { map = JSON.parse(localStorage.getItem(sig) || 'null'); } catch {}
+    map = map || guessMapping(columns);
+    S.pending = { name: f.name, encoding, columns, rows, sig };
+    if (missingRequired(map).length) return openMapping(map);
+    finishImport(map);
+  } catch (e) { toast(e instanceof ImportError ? e.message : 'Could not read this file. Use the CSV template.'); }
+}
+function renderCompany() {
+  const c = S.company || {}, first = S.raw[0] || {};
+  const label = { seller_name: 'Registered name', seller_tin: 'TIN (10 digits)', seller_trn: 'TRN (15 digits)', seller_legal_id: 'Trade licence or legal ID', seller_legal_type: 'Legal ID type', seller_address: 'Address line 1', seller_city: 'City', seller_subdivision: 'Emirate', seller_country: 'Country code' };
+  const opts = { seller_legal_type: ['TL', 'EID', 'PAS', 'CD'], seller_subdivision: SUBDIVISIONS, seller_country: ['AE'] };
+  $('#co-form').innerHTML = SELLER_FIELDS.map(f => {
+    const v = c[f] || first[f] || (f === 'seller_country' ? 'AE' : '');
+    return `<label class="maprow"><span>${label[f]}</span>${opts[f] ? `<select data-co="${f}"><option value=""></option>${opts[f].map(o => `<option ${o === v ? 'selected' : ''}>${o}</option>`).join('')}</select>` : `<input data-co="${f}" value="${esc(v)}">`}</label>`;
+  }).join('');
+}
+function saveCompany() {
+  const c = {}; document.querySelectorAll('[data-co]').forEach(el => { c[el.dataset.co] = el.value.trim(); });
+  S.company = c; try { localStorage.setItem('pf-company', JSON.stringify(c)); } catch {}
+  S.invoices = applyCompany(S.raw, c); run(); toast('Company details applied to every invoice');
+}
+function finishImport(map) {
+  const p = S.pending; if (!p) return;
+  try { localStorage.setItem(p.sig, JSON.stringify(map)); } catch {}
+  S.mapping = map; S.pending = null; S.undo = [];
+  load(rowsToInvoices(p.rows, map), p.name);
+  const noSeller = SELLER_FIELDS.some(f => !map[f]) && !S.company;
+  if (noSeller) toast(`${p.rows.length.toLocaleString()} rows read. Add your company details once.`, 'Add', () => nav('company'));
+  else toast(`${p.rows.length.toLocaleString()} rows read · ${p.encoding}`);
+}
+function openMapping(map) {
+  const p = S.pending, label = f => f.replace(/_/g, ' ');
+  drawer(`<div class="dr-k">Import · ${esc(p.name)} · ${esc(p.encoding)}</div><h3>Match your columns</h3>
+    <p class="dr-why">Your export names some columns differently. Pick the matching column once. It is remembered for this file layout.</p>
+    <div class="sec">Required</div><div class="maprows">${REQUIRED.map(f => row(f, true)).join('')}</div>
+    <div class="sec">Optional, used by the checks</div><div class="maprows">${FIELDS.filter(f => !REQUIRED.includes(f)).map(f => row(f, false)).join('')}</div>
+    <button class="primary" id="map-go">Check invoices</button><p class="fine" id="map-msg"></p>`);
+  function row(f, req) {
+    return `<label class="maprow"><span>${label(f)}${req ? ' <b>*</b>' : ''}</span><select data-f="${f}"><option value="">Not in file</option>${p.columns.map(c => `<option ${map[f] === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>`;
+  }
+  $('#map-go').onclick = () => {
+    const m = {}; document.querySelectorAll('[data-f]').forEach(s => { if (s.value) m[s.dataset.f] = s.value; });
+    const miss = missingRequired(m);
+    if (miss.length) { $('#map-msg').textContent = 'Still needed: ' + miss.map(label).join(', '); return; }
+    closeDrawer(); finishImport(m);
+  };
+}
+
+function managerReport() {
+  const r = S.report, ready = r.passing, d = new Date().toISOString().slice(0, 10);
+  const rows = r.groups.map(g => `<tr><td>${esc(WHY[g.rule]?.[0] || g.message)}</td><td>${esc(g.record)}</td><td>${esc(SOURCES[g.source])}</td><td style="text-align:right">${g.invoices.length}</td><td>${g.fix ? 'Fix ready' : 'Needs a person'}</td></tr>`).join('');
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>E-invoicing readiness ${d}</title><style>body{font:13px/1.5 system-ui,sans-serif;color:#18181B;margin:40px;max-width:900px}h1{font-size:20px}table{width:100%;border-collapse:collapse;margin-top:16px}td,th{text-align:left;padding:8px;border-bottom:1px solid #E7E7E4}th{color:#71717A;font-weight:500}.k{display:flex;gap:40px;margin-top:16px}.k b{display:block;font-size:24px}@media print{body{margin:16mm}}</style></head><body>
+  <h1>UAE e-invoicing readiness · ${esc(S.source)}</h1><p>${d} · Checked against PINT AE 1.0.4 and the Ministry of Finance mandatory fields V1.0.</p>
+  <div class="k"><div><b>${ready}</b>ready to send</div><div><b>${r.failing}</b>would be rejected</div><div><b>${r.groups.length}</b>root causes</div></div>
+  <table><thead><tr><th>Issue</th><th>Record</th><th>Fix in</th><th style="text-align:right">Invoices</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>
+  <h2 style="font-size:15px;margin-top:28px">Approved changes</h2><table><tbody>${S.log.map(l => `<tr><td>${esc(l.time)}</td><td>${esc(l.who)}</td><td>${esc(l.text)}</td></tr>`).join('') || '<tr><td>None yet</td></tr>'}</tbody></table>
+  <p style="color:#71717A;margin-top:24px">Pre-submission check. The Accredited Service Provider runs final validation.</p></body></html>`;
+}
 
 let host = null;
 if (window.claude?.use) window.claude.use('downloads').then(d => { host = d; }).catch(() => {});
+async function dlBlob(name, blob) {
+  if (host) { try { await host.save({ filename: name, data: blob }); } catch {} return; }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
 async function dl(name, text, type = 'text/plain') {
+  if (host && /\.xml$/.test(name)) return dlBlob(name.replace(/\.xml$/, '.zip'), zip([{ name, text }])); // xml is not on the host's download allowlist
   if (host) { try { await host.save({ filename: name, data: text }); } catch {} return; }
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
@@ -895,15 +1135,23 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#search').oninput = e => { S.q = e.target.value; render(); };
   $('#dr-x').onclick = closeDrawer; $('#scrim').onclick = closeDrawer;
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); if (e.key === '/' && document.activeElement.tagName !== 'INPUT') { e.preventDefault(); $('#search').focus(); } });
-  const file = e => { const f = e.target.files[0]; if (!f) return; f.text().then(t => { try { const inv = rowsToInvoices(parseCSV(t)); if (!inv.length) throw 0; load(inv, f.name); } catch { toast('Could not read this file. Use the CSV template.'); } }); };
+  const file = e => { const f = e.target.files[0]; e.target.value = ''; if (f) importFile(f); };
   $('#file').onchange = file; $('#file2').onchange = file;
-  $('#demo').onclick = () => load(sampleInvoices(), 'Raml Home Trading LLC');
+  $('#demo').onclick = () => { S.company = null; load(sampleInvoices(), 'Raml Home Trading LLC (demo)'); };
   $('#rerun').onclick = () => { run(); toast('Re-checked against PINT AE 1.0.4'); };
   document.querySelectorAll('.tpl').forEach(b => b.onclick = () => dl('pint-ae-preflight-template.csv', invoicesToCSV(sampleInvoices().slice(0, 3)), 'text/csv'));
   $('#exp-csv').onclick = () => dl('invoices-corrected.csv', invoicesToCSV(S.invoices), 'text/csv');
-  $('#exp-log').onclick = () => dl('approval-log.csv', 'time,reviewer,change,invoices_cleared\n' + S.log.map(l => `${l.time},${l.who},"${l.text}",${l.cleared}`).join('\n'), 'text/csv');
+  $('#exp-zip').onclick = () => {
+    const ok = S.invoices.filter(i => !S.report.findings.some(f => f.invoice === i.invoice_no));
+    if (!ok.length) return toast('No invoices are ready yet.');
+    dlBlob(`pint-ae-ready-${ok.length}.zip`, zip(ok.map(i => ({ name: `${i.invoice_no.replace(/[^\w.-]/g, '_')}.xml`, text: toUBL(i) }))));
+  };
+  $('#exp-report').onclick = () => dl(`readiness-report-${new Date().toISOString().slice(0, 10)}.html`, managerReport(), 'text/html');
+  $('#exp-log').onclick = () => dl('approval-log.csv', 'time,reviewer,change,invoices_cleared\n' + S.log.map(l => [l.time, l.who, l.text, l.cleared].map(safeCell).join(',')).join('\n'), 'text/csv');
   $('#burger').onclick = () => document.body.classList.toggle('nav-open');
-  load(sampleInvoices(), 'Raml Home Trading LLC');
+  $('#co-save').onclick = saveCompany;
+  try { S.company = JSON.parse(localStorage.getItem('pf-company') || 'null'); } catch {}
+  load(sampleInvoices(), 'Raml Home Trading LLC (demo)');
 });
 
 </script>

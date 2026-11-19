@@ -10,10 +10,11 @@ Preflight reads a normal ERP invoice export, runs the UAE rules, and groups ever
 
 ## What it does
 
-1. **Load** an ERP export (CSV, one row per invoice line) or the built-in demo data for *Raml Home*, a fictional Dubai homeware retailer.
-2. **Review** failures grouped by root cause, ranked by how many invoices each one blocks. Each cause shows the plain-language reason, the ERP area to fix it in (company setup, customer master, item master, tax setup, or the invoice itself), the official rule ID linked to the specification, and the exact XML line the ASP would receive.
-3. **Approve fixes.** Where a fix is safe and certain (a city name to an emirate code, a free-text unit to its UN/ECE code), Preflight proposes it. Nothing changes until a person approves. Every approval is written to an audit log with a timestamp. Where a guess would be wrong, such as a mistyped tax number, it says so and leaves it to finance.
-4. **Export** the invoices that now pass as PINT AE UBL 2.1 XML, plus the corrected CSV and the fix log.
+1. **Import** an ERP export as CSV. Built for real files: Excel exports in Windows-1256 (Arabic), semicolon or comma delimiters, thousands separators, Arabic digits. Column names differ per ERP, so Preflight guesses the mapping and asks only for what it cannot match. The mapping is remembered for that file layout.
+2. **Company details once.** Seller fields are the same on every invoice, so they are entered once instead of exported on every row.
+3. **Review** failures grouped by root cause, ranked by how many invoices each one blocks. Each cause shows the plain-language reason, where in the ERP to fix it, the official rule ID linked to the specification, and the exact XML line the ASP would receive.
+4. **Approve fixes.** Where a fix is certain (a city name to an emirate code, a free-text unit to its UN/ECE code), Preflight proposes it. Nothing changes until a person approves, every approval is logged, and any approval can be undone. Where a guess would be wrong, such as a mistyped tax number, it is left to finance.
+5. **Export** every ready invoice as PINT AE UBL 2.1 XML in one zip, a one-page readiness report for the finance manager, the corrected CSV, and the approval log.
 
 On the demo data, 83 of 84 invoices fail. Ten root causes explain all of them, and four approved fixes clear 39 invoices in one pass.
 
@@ -34,6 +35,11 @@ On the demo data, 83 of 84 invoices fail. Ten root causes explain all of them, a
 | `ibr-125-ae` / `ibr-126-ae` | Item description, gross price, and price base quantity present |
 | `ibr-104-ae` / `ibr-140-ae` | AED amounts on foreign currency lines, AED as VAT accounting currency |
 | Unit of measure | Units are UN/ECE Recommendation 20 codes, with common free-text units mapped |
+| MoF field 1 | Invoice numbers are unique; two documents sharing a number are flagged, not merged |
+| MoF fields 2, 6 | Dates are real dates in YYYY-MM-DD |
+| MoF field 4 | Currency is a 3-letter ISO 4217 code |
+| MoF field 22 | A UAE buyer's electronic address is their 10-digit TIN |
+| `ibr-055-ae` | A credit note references the invoice it corrects |
 
 Preflight is a pre-submission check on ERP data. The ASP still runs the full PINT AE schematron, and that remains the final word.
 
@@ -42,11 +48,11 @@ Preflight is a pre-submission check on ERP data. The ASP still runs the full PIN
 No dependencies. Node 18 or later.
 
 ```bash
-npm test          # 16 rule tests
+npm test          # 31 tests: rules, import edge cases, security
 npm run build     # writes dist/index.html, one self-contained file
 ```
 
-Open `dist/index.html` in a browser. Invoice data stays in the browser. Nothing is uploaded.
+Open `docs/index.html` in a browser (the public build, with a Content Security Policy that blocks all network access). Invoice data never leaves the browser. See [SECURITY.md](SECURITY.md).
 
 ## Input format
 

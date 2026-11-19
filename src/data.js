@@ -1,5 +1,27 @@
-// CSV in, invoices out. One CSV row = one invoice line; header columns repeat per line.
-export function parseCSV(text) {
+// Import pipeline: bytes -> text -> rows -> mapped columns -> invoices.
+// Built for real ERP exports: Excel CSVs in Windows-1256, semicolon delimiters, BOMs,
+// thousands separators, Arabic digits, and column names that differ per system.
+
+export const LIMITS = { bytes: 20 * 1024 * 1024, rows: 200000 };
+
+export function decodeBytes(buf) {
+  const u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  if (u8.length > LIMITS.bytes) throw new ImportError(`File is ${(u8.length / 1048576).toFixed(1)} MB. The limit is ${LIMITS.bytes / 1048576} MB. Split the export by month.`);
+  try { return { text: stripBom(new TextDecoder('utf-8', { fatal: true }).decode(u8)), encoding: 'UTF-8' }; }
+  catch { return { text: stripBom(new TextDecoder('windows-1256').decode(u8)), encoding: 'Windows-1256' }; }
+}
+const stripBom = t => (t.charCodeAt(0) === 0xfeff ? t.slice(1) : t);
+
+export class ImportError extends Error {}
+
+export function detectDelimiter(text) {
+  const first = text.slice(0, text.search(/\r?\n/) >>> 0 || 2000);
+  const counts = [',', ';', '\t'].map(d => [d, first.split(d).length - 1]);
+  counts.sort((a, b) => b[1] - a[1]);
+  return counts[0][1] > 0 ? counts[0][0] : ',';
+}
+
+export function parseCSV(text, delim = detectDelimiter(text)) {
   const rows = [];
   let row = [], cell = '', q = false;
   for (let i = 0; i < text.length; i++) {
@@ -9,44 +31,139 @@ export function parseCSV(text) {
       else if (c === '"') q = false;
       else cell += c;
     } else if (c === '"') q = true;
-    else if (c === ',') { row.push(cell); cell = ''; }
+    else if (c === delim) { row.push(cell); cell = ''; }
     else if (c === '\n' || c === '\r') {
       if (c === '\r' && text[i + 1] === '\n') i++;
       row.push(cell); cell = '';
       if (row.some(v => v !== '')) rows.push(row);
+      if (rows.length > LIMITS.rows + 1) throw new ImportError(`More than ${LIMITS.rows.toLocaleString()} rows. Split the export by month.`);
       row = [];
     } else cell += c;
   }
   row.push(cell);
   if (row.some(v => v !== '')) rows.push(row);
+  if (rows.length < 2) throw new ImportError('The file has no data rows.');
   const [head, ...body] = rows;
-  return body.map(r => Object.fromEntries(head.map((h, i) => [h.trim(), (r[i] ?? '').trim()])));
+  return { columns: head.map(h => h.trim()), rows: body.map(r => Object.fromEntries(head.map((h, i) => [h.trim(), (r[i] ?? '').trim()]))) };
 }
 
 export const LINE_FIELDS = ['line_id', 'item_code', 'item_name', 'item_description', 'qty', 'uom', 'net_price', 'gross_price', 'base_qty', 'line_net', 'tax_category', 'tax_rate', 'line_vat_aed', 'line_amount_aed'];
+export const HEADER_FIELDS = ['invoice_no', 'invoice_date', 'type_code', 'currency', 'transaction_flags', 'due_date', 'payment_means', 'preceding_invoice',
+  'seller_name', 'seller_tin', 'seller_trn', 'seller_legal_id', 'seller_legal_type', 'seller_address', 'seller_city', 'seller_subdivision', 'seller_country', 'accounting_currency',
+  'buyer_name', 'buyer_endpoint', 'buyer_trn', 'buyer_vat_registered', 'buyer_address', 'buyer_city', 'buyer_subdivision', 'buyer_country'];
+export const FIELDS = [...HEADER_FIELDS, ...LINE_FIELDS];
+// Without these the file cannot be read as invoices at all. Everything else is checked by the rules.
+export const SELLER_FIELDS = ['seller_name', 'seller_tin', 'seller_trn', 'seller_legal_id', 'seller_legal_type', 'seller_address', 'seller_city', 'seller_subdivision', 'seller_country'];
+// Seller details are the same on every invoice, so they can be entered once instead of exported per row.
+export function applyCompany(invoices, company) {
+  if (!company) return invoices;
+  return invoices.map(inv => { const o = { ...inv }; for (const f of SELLER_FIELDS) if (!o[f] && company[f]) o[f] = company[f]; return o; });
+}
+export const REQUIRED = ['invoice_no', 'invoice_date', 'type_code', 'buyer_name', 'qty', 'net_price', 'line_net', 'tax_category', 'tax_rate'];
+const NUMERIC = ['qty', 'net_price', 'gross_price', 'base_qty', 'line_net', 'tax_rate', 'line_vat_aed', 'line_amount_aed'];
 
-export function rowsToInvoices(rows) {
-  const map = new Map();
-  for (const r of rows) {
-    if (!map.has(r.invoice_no)) {
-      const head = {};
-      for (const [k, v] of Object.entries(r)) if (!LINE_FIELDS.includes(k)) head[k] = v;
-      map.set(r.invoice_no, { ...head, lines: [] });
-    }
-    const line = {};
-    for (const k of LINE_FIELDS) line[k] = r[k] ?? '';
-    map.get(r.invoice_no).lines.push(line);
+// Common names ERPs give the same column. Matching is case and punctuation insensitive.
+const SYNONYMS = {
+  invoice_no: ['invoice', 'invoice number', 'invoice id', 'invoiceid', 'document no', 'doc no', 'number', 'رقم الفاتورة'],
+  invoice_date: ['date', 'issue date', 'invoice date', 'document date', 'تاريخ الفاتورة', 'التاريخ'],
+  type_code: ['type', 'invoice type', 'document type'],
+  currency: ['currency code', 'currency', 'العملة'],
+  due_date: ['due', 'payment due date', 'due date', 'تاريخ الاستحقاق'],
+  buyer_name: ['customer', 'customer name', 'buyer', 'client', 'العميل', 'اسم العميل'],
+  buyer_trn: ['customer trn', 'customer vat', 'buyer vat', 'trn'],
+  buyer_endpoint: ['customer tin', 'buyer tin', 'peppol id', 'endpoint'],
+  item_code: ['sku', 'item', 'item number', 'product code', 'item id'],
+  item_name: ['product', 'product name', 'item name', 'description short', 'الصنف'],
+  item_description: ['description', 'item description', 'line description', 'الوصف'],
+  qty: ['quantity', 'qty', 'الكمية'],
+  uom: ['unit', 'unit of measure', 'uom', 'الوحدة'],
+  net_price: ['unit price', 'price', 'net price', 'سعر الوحدة'],
+  gross_price: ['gross price', 'list price'],
+  line_net: ['line amount', 'line total', 'net amount', 'amount', 'line net', 'المبلغ'],
+  tax_category: ['vat category', 'tax category', 'tax code', 'vat code'],
+  tax_rate: ['vat rate', 'tax rate', 'vat %', 'vat', 'نسبة الضريبة'],
+};
+const norm = s => String(s).toLowerCase().replace(/[_\-\s.:/()%]+/g, ' ').trim();
+
+export function guessMapping(columns) {
+  const map = {};
+  const byNorm = new Map(columns.map(c => [norm(c), c]));
+  for (const f of FIELDS) {
+    if (byNorm.has(norm(f))) { map[f] = byNorm.get(norm(f)); continue; }
+    for (const syn of SYNONYMS[f] || []) if (byNorm.has(norm(syn))) { map[f] = byNorm.get(norm(syn)); break; }
   }
-  return [...map.values()];
+  return map;
+}
+export const missingRequired = map => REQUIRED.filter(f => !map[f]);
+
+const AR_DIGITS = '٠١٢٣٤٥٦٧٨٩';
+export function normalizeNumber(v) {
+  let s = String(v ?? '').trim().replace(/[٠-٩]/g, d => AR_DIGITS.indexOf(d)).replace(/[\s ]/g, '');
+  if (!s) return '';
+  if (/^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(s)) s = s.replace(/,/g, '');          // 1,234.50
+  else if (/^-?\d{1,3}(\.\d{3})+(,\d+)?$/.test(s)) s = s.replace(/\./g, '').replace(',', '.'); // 1.234,50
+  else if (/^-?\d+,\d+$/.test(s)) s = s.replace(',', '.');                         // 12,5
+  return s;
 }
 
+// Applies a column mapping and builds invoices. Same invoice number with a different
+// buyer or date is a second document, not more lines: it is kept and flagged.
+export function rowsToInvoices(rows, mapping = null) {
+  const map = new Map(), out = [];
+  for (const raw of rows) {
+    const r = {};
+    for (const f of FIELDS) { const col = mapping ? mapping[f] : f; r[f] = col ? (raw[col] ?? '') : ''; }
+    for (const f of NUMERIC) r[f] = normalizeNumber(r[f]);
+    const key = r.invoice_no;
+    let inv = map.get(key);
+    if (inv && (inv.buyer_name !== r.buyer_name || inv.invoice_date !== r.invoice_date)) { inv._duplicate = true; inv = null; }
+    if (!inv) {
+      const head = {}; for (const f of HEADER_FIELDS) head[f] = r[f];
+      inv = { ...head, lines: [] };
+      if (map.has(key)) { inv._duplicate = true; map.get(key)._duplicate = true; }
+      map.set(key, inv); out.push(inv);
+    }
+    const line = {}; for (const f of LINE_FIELDS) line[f] = r[f];
+    if (!line.line_id) line.line_id = String(inv.lines.length + 1); // ERPs rarely export it; position is a valid identifier
+    inv.lines.push(line);
+  }
+  return out;
+}
+
+// CSV out. Cells that a spreadsheet would run as a formula are neutralised.
+export function safeCell(v) {
+  let s = String(v ?? '');
+  if (/^[=+\-@\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s)) s = "'" + s;
+  return /[",\n\r;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
 export function invoicesToCSV(invoices) {
-  const headKeys = Object.keys(invoices[0]).filter(k => k !== 'lines');
-  const cols = [...headKeys, ...LINE_FIELDS];
-  const esc = v => (/[",\n]/.test(String(v ?? '')) ? `"${String(v).replace(/"/g, '""')}"` : String(v ?? ''));
-  const out = [cols.join(',')];
-  for (const inv of invoices) for (const l of inv.lines) out.push(cols.map(c => esc(LINE_FIELDS.includes(c) ? l[c] : inv[c])).join(','));
+  const out = [FIELDS.join(',')];
+  for (const inv of invoices) for (const l of inv.lines) out.push(FIELDS.map(c => safeCell(LINE_FIELDS.includes(c) ? l[c] : inv[c])).join(','));
   return out.join('\n');
+}
+
+// Minimal ZIP writer (stored, no compression) so all ready invoices download as one file.
+const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+const crc32 = b => { let c = 0xffffffff; for (let i = 0; i < b.length; i++) c = CRC[(c ^ b[i]) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+export function zip(files) {
+  const enc = new TextEncoder(), parts = [], dir = [];
+  let off = 0;
+  for (const f of files) {
+    const name = enc.encode(f.name), data = enc.encode(f.text), crc = crc32(data);
+    const h = new DataView(new ArrayBuffer(30));
+    h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true); h.setUint32(14, crc, true);
+    h.setUint32(18, data.length, true); h.setUint32(22, data.length, true); h.setUint16(26, name.length, true);
+    parts.push(new Uint8Array(h.buffer), name, data);
+    const d = new DataView(new ArrayBuffer(46));
+    d.setUint32(0, 0x02014b50, true); d.setUint16(4, 20, true); d.setUint16(6, 20, true); d.setUint16(8, 0x0800, true); d.setUint32(16, crc, true);
+    d.setUint32(20, data.length, true); d.setUint32(24, data.length, true); d.setUint16(28, name.length, true); d.setUint32(42, off, true);
+    dir.push(new Uint8Array(d.buffer), name);
+    off += 30 + name.length + data.length;
+  }
+  const size = dir.reduce((a, p) => a + p.length, 0);
+  const e = new DataView(new ArrayBuffer(22));
+  e.setUint32(0, 0x06054b50, true); e.setUint16(8, files.length, true); e.setUint16(10, files.length, true); e.setUint32(12, size, true); e.setUint32(16, off, true);
+  return new Blob([...parts, ...dir, new Uint8Array(e.buffer)], { type: 'application/zip' });
 }
 
 // Demo dataset: Raml Home, a fictional Dubai homeware retailer.

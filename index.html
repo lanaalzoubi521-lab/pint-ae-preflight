@@ -141,7 +141,14 @@ table.mini th,table.mini td{padding:8px 10px;font-size:12.5px}
 .flist li:first-child{border-top:0}
 .flist .mono{flex:none;width:118px}
 #toast{position:fixed;bottom:22px;left:50%;transform:translate(-50%,20px);background:var(--ink);color:#fff;font-size:13px;padding:9px 14px;border-radius:8px;opacity:0;transition:.25s;z-index:60;pointer-events:none}
-#toast.on{opacity:1;transform:translate(-50%,0)}
+#toast.on{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+#toast{display:flex;gap:14px;align-items:center}#toast button{color:#A5B4FC;font-weight:500}
+.maprows{border:1px solid var(--line);border-radius:8px;margin-bottom:6px}
+.maprow{display:grid;grid-template-columns:1fr 1.2fr;gap:12px;align-items:center;padding:8px 12px;border-top:1px solid var(--line2);font-size:13px;text-transform:capitalize}
+.maprow:first-child{border-top:0}.maprow b{color:var(--bad)}
+.maprow input,.maprow select{height:30px;border:1px solid var(--line);border-radius:6px;padding:0 8px;background:var(--panel);font:inherit;text-transform:none}
+#map-go{margin-top:16px}
+.exp{flex-wrap:wrap}
 .rules td:first-child{width:170px}
 .exp{display:flex;gap:10px;margin-bottom:14px}
 @media(max-width:900px){
@@ -163,12 +170,13 @@ table.mini th,table.mini td{padding:8px 10px;font-size:12.5px}
 <div class="app">
   <aside class="side">
     <div class="brand"><span class="mk"><span></span></span>PINT-AE Preflight</div>
-    <div class="org"><span class="av">RH</span><div style="min-width:0"><b id="src-name">Raml Home Trading LLC</b><span id="src-meta"></span></div></div>
+    <div class="org"><span class="av" id="org-av">RH</span><div style="min-width:0"><b id="src-name">Raml Home Trading LLC</b><span id="src-meta"></span></div></div>
     <nav>
       <a href="#" data-nav="overview" class="on"><span><svg viewBox="0 0 16 16"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg>Overview</span></a>
       <a href="#" data-nav="issues"><span><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M8 5v3.5M8 11h.01"/></svg>Issues</span><i id="n-issues"></i></a>
       <a href="#" data-nav="invoices"><span><svg viewBox="0 0 16 16"><path d="M4 2h6l3 3v9H4z"/><path d="M6 8h5M6 11h5"/></svg>Invoices</span><i id="n-inv"></i></a>
       <a href="#" data-nav="activity"><span><svg viewBox="0 0 16 16"><path d="M2 8h3l2-4 2 8 2-4h3"/></svg>Activity &amp; export</span></a>
+      <a href="#" data-nav="company"><span><svg viewBox="0 0 16 16"><path d="M3 14V4l5-2 5 2v10"/><path d="M6 14v-3h4v3M6 6h1M9 6h1M6 8.5h1M9 8.5h1"/></svg>Company details</span></a>
       <div class="navg">Reference</div>
       <a href="#" data-nav="rules"><span><svg viewBox="0 0 16 16"><path d="M3 3h10v10H3z"/><path d="M6 6h4M6 9h4"/></svg>Rules checked</span></a>
     </nav>
@@ -178,7 +186,7 @@ table.mini th,table.mini td{padding:8px 10px;font-size:12.5px}
   <main>
     <div class="top">
       <button id="burger" aria-label="Menu">≡</button>
-      <div class="crumbs">Raml Home <span class="hide-s">/ E-invoicing readiness</span> / <b id="crumb">Overview</b></div>
+      <div class="crumbs"><span id="crumb-org">Raml Home</span> <span class="hide-s">/ E-invoicing readiness</span> / <b id="crumb">Overview</b></div>
       <label class="search"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></svg><input id="search" placeholder="Search invoices, customers, items"><kbd>/</kbd></label>
       <button class="btn hide-m" id="rerun">Re-run check</button>
       <label class="btn dark">Upload ERP export<input type="file" id="file" accept=".csv,text/csv"></label>
@@ -222,9 +230,15 @@ table.mini th,table.mini td{padding:8px 10px;font-size:12.5px}
 
       <section class="page" id="pg-activity" hidden>
         <div class="ph"><div><h1>Activity &amp; export</h1><p>Every approved change, and the files to hand over.</p></div></div>
-        <div class="exp"><button class="btn dark" id="exp-csv">Download corrected CSV</button><button class="btn" id="exp-log">Download approval log</button></div>
-        <p class="mute" style="margin-bottom:14px"><b id="exp-n" style="color:var(--ink)">0</b> invoices are ready. Download each one as PINT AE XML from the Invoices page.</p>
+        <div class="exp"><button class="btn dark" id="exp-zip">Download ready invoices (XML, zip)</button><button class="btn" id="exp-report">Readiness report</button><button class="btn" id="exp-csv">Corrected CSV</button><button class="btn" id="exp-log">Approval log</button></div>
+        <p class="mute" style="margin-bottom:14px"><b id="exp-n" style="color:var(--ink)">0</b> invoices are ready. The readiness report is one page for the finance manager, ready to print.</p>
         <div class="card"><table><thead><tr><th>Time</th><th>Reviewer</th><th>Change</th><th class="num">Invoices cleared</th></tr></thead><tbody id="log"></tbody></table></div>
+      </section>
+
+      <section class="page" id="pg-company" hidden>
+        <div class="ph"><div><h1>Company details</h1><p>Your own details appear on every invoice. Enter them once instead of exporting them on every row. Saved in this browser only.</p></div></div>
+        <div class="card" style="max-width:640px;padding:6px 0"><div class="maprows" id="co-form" style="border:0;margin:0"></div></div>
+        <button class="btn dark" id="co-save" style="margin-top:14px">Save and re-check</button>
       </section>
 
       <section class="page" id="pg-rules" hidden>

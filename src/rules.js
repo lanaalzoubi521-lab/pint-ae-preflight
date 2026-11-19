@@ -84,6 +84,26 @@ export function validateInvoice(inv) {
     if (blank(inv[key])) out.push(f(rule, inv, source, recordKey(source, inv), key, `${label} is missing.`));
   }
 
+  if (inv._duplicate)
+    out.push(f('MF-01', inv, 'document', inv.invoice_no, 'invoice_no', `Invoice number ${inv.invoice_no} is used by more than one document. Invoice numbers must be unique.`));
+
+  for (const [key, rule, label] of [['invoice_date', 'MF-02', 'Invoice date'], ['due_date', 'MF-06', 'Payment due date']]) {
+    const v = String(inv[key] || '').trim();
+    if (v && !(/^\d{4}-\d{2}-\d{2}$/.test(v) && !isNaN(Date.parse(v + 'T00:00:00Z')) && new Date(v + 'T00:00:00Z').toISOString().slice(0, 10) === v))
+      out.push(f(rule, inv, 'document', inv.invoice_no, key, `${label} "${v}" must be a real date in the format YYYY-MM-DD.`));
+  }
+
+  if (!blank(inv.currency) && !/^[A-Z]{3}$/.test(String(inv.currency).trim()))
+    out.push(f('MF-04', inv, 'document', inv.invoice_no, 'currency', `Currency "${inv.currency}" must be a 3-letter ISO 4217 code such as AED.`));
+
+  // ibr-055-ae: credit notes must reference the invoice they correct
+  if ((type === '381' || type === '81') && blank(inv.preceding_invoice))
+    out.push(f('ibr-055-ae', inv, 'document', inv.invoice_no, 'preceding_invoice', 'Credit note does not reference the invoice it corrects.'));
+
+  // UAE buyers are addressed on the network by their TIN (scheme 0235)
+  if (inv.buyer_country === 'AE' && !blank(inv.buyer_endpoint) && !/^1\d{9}$/.test(String(inv.buyer_endpoint)))
+    out.push(f('MF-22', inv, 'customer', recordKey('customer', inv), 'buyer_endpoint', `Buyer electronic address "${inv.buyer_endpoint}" must be the buyer's 10-digit TIN (1XXXXXXXXX).`));
+
   if (!blank(type) && !INVOICE_TYPES[type])
     out.push(f('MF-03', inv, 'document', inv.invoice_no, 'type_code', `Invoice type code "${type}" is not in the PINT AE code list.`));
 
@@ -147,6 +167,8 @@ export function validateInvoice(inv) {
     for (const [rule, key, label, source] of LINE_MANDATORY) {
       if (blank(l[key])) out.push(f(rule, inv, source, recordKey(source, inv, l), key, `${label} is missing on ${lineRef}.`, { line: l.line_id }));
     }
+    for (const k of ['qty', 'net_price', 'line_net', 'tax_rate', 'gross_price', 'base_qty'])
+      if (!blank(l[k]) && isNaN(Number(l[k]))) out.push(f(k === 'qty' ? 'MF-40' : 'MF-42', inv, 'document', inv.invoice_no, k, `${lineRef}: "${l[k]}" in ${k} is not a number.`, { line: l.line_id }));
     if (blank(l.line_id)) out.push(f('MF-39', inv, 'document', inv.invoice_no, 'line_id', 'Invoice line identifier is missing.'));
 
     // ibr-125-ae item description

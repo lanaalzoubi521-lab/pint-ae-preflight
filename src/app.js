@@ -21,7 +21,7 @@ const WHY = {
 const RULE_URL = id => (id.startsWith('MF') ? 'https://mof.gov.ae/wp-content/uploads/2026/02/UAE-Electronic-Invoice-mandatory-fields_V-1.0-23Feb2026.pdf' : `https://docs.peppol.eu/poac/ae/pint-ae/trn-invoice/rule/${id}/`);
 const XML_HINT = { buyer_subdivision: 'CountrySubentity', seller_subdivision: 'CountrySubentity', uom: 'unitCode', item_description: 'cbc:Description', due_date: 'IssueDate', buyer_trn: 'PartyTaxScheme', line_net: 'LineExtensionAmount', tax_rate: 'cbc:Percent', transaction_flags: 'ProfileExecutionID', base_qty: 'BaseQuantity', gross_price: 'BaseAmount' };
 
-const S = { invoices: [], report: null, log: [], view: 'overview', invFilter: 'all', q: '', open: null, source: 'Raml Home Trading LLC', loadedAt: null };
+const S = { raw: [], company: null, invoices: [], report: null, log: [], undo: [], mapping: null, pending: null, view: 'overview', invFilter: 'all', q: '', open: null, source: 'Raml Home Trading LLC', loadedAt: null };
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const aed = v => 'AED ' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -30,6 +30,7 @@ const sevOf = g => (g.fix ? 'fixable' : 'manual');
 
 function run() { S.report = validateBatch(S.invoices); render(); }
 function load(invoices, label) {
+  S.raw = invoices; invoices = applyCompany(invoices, S.company);
   S.invoices = invoices; S.log = []; S.source = label; S.loadedAt = new Date();
   document.body.classList.remove('empty');
   run(); nav('overview');
@@ -39,7 +40,8 @@ function nav(v) {
   S.view = v;
   document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('on', a.dataset.nav === v));
   document.querySelectorAll('.page').forEach(p => p.hidden = p.id !== 'pg-' + v);
-  $('#crumb').textContent = { overview: 'Overview', issues: 'Issues', invoices: 'Invoices', activity: 'Activity', rules: 'Rules' }[v];
+  $('#crumb').textContent = { overview: 'Overview', issues: 'Issues', invoices: 'Invoices', activity: 'Activity', rules: 'Rules', company: 'Company details' }[v];
+  if (v === 'company') renderCompany();
   render();
 }
 
@@ -51,6 +53,8 @@ function render() {
   const blockedValue = S.invoices.filter(i => r.findings.some(f => f.invoice === i.invoice_no)).reduce((a, i) => a + total(i), 0);
   // sidebar
   $('#src-name').textContent = S.source;
+  $('#org-av').textContent = (S.company?.seller_name || S.source).replace(/[^A-Za-z\u0600-\u06FF ]/g, '').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase() || 'PF';
+  $('#crumb-org').textContent = S.company?.seller_name || S.source;
   $('#src-meta').textContent = `${r.total} invoices · loaded ${S.loadedAt.toTimeString().slice(0, 5)}`;
   $('#n-issues').textContent = r.groups.length; $('#n-inv').textContent = r.total;
   // overview
@@ -82,7 +86,7 @@ function render() {
     <td>${bad.has(i.invoice_no) ? `<span class="st st-bad">Blocked</span>` : `<span class="st st-ok">Ready</span>`}</td>
     <td class="num mute hide-s">${bad.get(i.invoice_no) || ''}</td>
     <td class="act">${bad.has(i.invoice_no) ? '' : `<button class="ghost sm" data-xml="${esc(i.invoice_no)}">XML</button>`}</td></tr>`).join('');
-  document.querySelectorAll('[data-xml]').forEach(b => b.onclick = e => { e.stopPropagation(); dl(`${b.dataset.xml}.xml`, toUBL(S.invoices.find(i => i.invoice_no === b.dataset.xml)), 'application/xml'); });
+  document.querySelectorAll('[data-xml]').forEach(b => b.onclick = e => { e.stopPropagation(); dl(`${b.dataset.xml.replace(/[^\w.-]/g, '_')}.xml`, toUBL(S.invoices.find(i => i.invoice_no === b.dataset.xml)), 'application/xml'); });
   document.querySelectorAll('[data-inv]').forEach(tr => tr.onclick = () => openInvoice(tr.dataset.inv));
   // activity
   $('#log').innerHTML = S.log.length ? S.log.map(l => `<tr><td class="mono mute">${esc(l.time)}</td><td>${esc(l.who)}</td><td>${esc(l.text)}</td><td class="num">${l.cleared ? `−${l.cleared}` : ''}</td></tr>`).join('') : `<tr><td colspan="4" class="emptyrow">No changes approved yet.</td></tr>`;
@@ -167,24 +171,105 @@ function openInvoice(no) {
     ${inv.lines.map(l => `<tr><td>${esc(l.item_name)}</td><td class="num">${esc(l.qty)}</td><td class="mono">${esc(l.uom)}</td><td class="num">${Number(l.line_net).toFixed(2)}</td></tr>`).join('')}</tbody></table>
     <div class="sec">${fs.length ? `${fs.length} issue${fs.length > 1 ? 's' : ''}` : 'Validation'}</div>
     ${fs.length ? `<ul class="flist">${fs.map(f => `<li><span class="mono mute">${esc(f.rule)}</span>${esc(f.message)}</li>`).join('')}</ul>` : `<p class="dr-p">Passes every check. Ready to hand to your ASP.</p><button class="primary" id="dr-xml">Download PINT AE XML</button>`}`);
-  const b = $('#dr-xml'); if (b) b.onclick = () => dl(`${no}.xml`, toUBL(inv), 'application/xml');
+  const b = $('#dr-xml'); if (b) b.onclick = () => dl(`${no.replace(/[^\w.-]/g, '_')}.xml`, toUBL(inv), 'application/xml');
 }
 
 function approve(g) {
   if (!g?.fix) return;
   const before = S.report.failing;
+  S.undo.push(S.invoices);
   S.invoices = applyFix(S.invoices, g);
   S.report = validateBatch(S.invoices);
   const t = new Date();
   S.log.unshift({ time: t.toISOString().slice(0, 16).replace('T', ' '), who: 'Finance reviewer', text: `${SOURCES[g.source]} · ${g.record}: ${g.field} set to ${g.fix.value}`, cleared: before - S.report.failing });
-  closeDrawer(); render(); toast(`${before - S.report.failing} invoices cleared`);
+  closeDrawer(); render(); toast(`${before - S.report.failing} invoices cleared`, 'Undo', undo);
 }
 
-function toast(t) { const el = $('#toast'); el.textContent = t; el.classList.add('on'); clearTimeout(toast.h); toast.h = setTimeout(() => el.classList.remove('on'), 2400); }
+function toast(t, label, fn) {
+  const el = $('#toast'); el.innerHTML = `<span>${esc(t)}</span>${label ? `<button>${esc(label)}</button>` : ''}`;
+  if (label) el.querySelector('button').onclick = () => { el.classList.remove('on'); fn(); };
+  el.classList.add('on'); clearTimeout(toast.h); toast.h = setTimeout(() => el.classList.remove('on'), label ? 6000 : 2600);
+}
+function undo() {
+  if (!S.undo.length) return;
+  S.invoices = S.undo.pop(); const l = S.log.shift();
+  S.log.unshift({ time: new Date().toISOString().slice(0, 16).replace('T', ' '), who: 'Finance reviewer', text: `Undone: ${l ? l.text : 'last change'}`, cleared: 0 });
+  run(); toast('Change undone');
+}
+
+// Import: decode, detect delimiter, map columns (remembered per column set), then load.
+async function importFile(f) {
+  try {
+    const { text, encoding } = decodeBytes(await f.arrayBuffer());
+    const { columns, rows } = parseCSV(text);
+    const sig = 'pf-map:' + columns.join('|');
+    let map = null; try { map = JSON.parse(localStorage.getItem(sig) || 'null'); } catch {}
+    map = map || guessMapping(columns);
+    S.pending = { name: f.name, encoding, columns, rows, sig };
+    if (missingRequired(map).length) return openMapping(map);
+    finishImport(map);
+  } catch (e) { toast(e instanceof ImportError ? e.message : 'Could not read this file. Use the CSV template.'); }
+}
+function renderCompany() {
+  const c = S.company || {}, first = S.raw[0] || {};
+  const label = { seller_name: 'Registered name', seller_tin: 'TIN (10 digits)', seller_trn: 'TRN (15 digits)', seller_legal_id: 'Trade licence or legal ID', seller_legal_type: 'Legal ID type', seller_address: 'Address line 1', seller_city: 'City', seller_subdivision: 'Emirate', seller_country: 'Country code' };
+  const opts = { seller_legal_type: ['TL', 'EID', 'PAS', 'CD'], seller_subdivision: SUBDIVISIONS, seller_country: ['AE'] };
+  $('#co-form').innerHTML = SELLER_FIELDS.map(f => {
+    const v = c[f] || first[f] || (f === 'seller_country' ? 'AE' : '');
+    return `<label class="maprow"><span>${label[f]}</span>${opts[f] ? `<select data-co="${f}"><option value=""></option>${opts[f].map(o => `<option ${o === v ? 'selected' : ''}>${o}</option>`).join('')}</select>` : `<input data-co="${f}" value="${esc(v)}">`}</label>`;
+  }).join('');
+}
+function saveCompany() {
+  const c = {}; document.querySelectorAll('[data-co]').forEach(el => { c[el.dataset.co] = el.value.trim(); });
+  S.company = c; try { localStorage.setItem('pf-company', JSON.stringify(c)); } catch {}
+  S.invoices = applyCompany(S.raw, c); run(); toast('Company details applied to every invoice');
+}
+function finishImport(map) {
+  const p = S.pending; if (!p) return;
+  try { localStorage.setItem(p.sig, JSON.stringify(map)); } catch {}
+  S.mapping = map; S.pending = null; S.undo = [];
+  load(rowsToInvoices(p.rows, map), p.name);
+  const noSeller = SELLER_FIELDS.some(f => !map[f]) && !S.company;
+  if (noSeller) toast(`${p.rows.length.toLocaleString()} rows read. Add your company details once.`, 'Add', () => nav('company'));
+  else toast(`${p.rows.length.toLocaleString()} rows read · ${p.encoding}`);
+}
+function openMapping(map) {
+  const p = S.pending, label = f => f.replace(/_/g, ' ');
+  drawer(`<div class="dr-k">Import · ${esc(p.name)} · ${esc(p.encoding)}</div><h3>Match your columns</h3>
+    <p class="dr-why">Your export names some columns differently. Pick the matching column once. It is remembered for this file layout.</p>
+    <div class="sec">Required</div><div class="maprows">${REQUIRED.map(f => row(f, true)).join('')}</div>
+    <div class="sec">Optional, used by the checks</div><div class="maprows">${FIELDS.filter(f => !REQUIRED.includes(f)).map(f => row(f, false)).join('')}</div>
+    <button class="primary" id="map-go">Check invoices</button><p class="fine" id="map-msg"></p>`);
+  function row(f, req) {
+    return `<label class="maprow"><span>${label(f)}${req ? ' <b>*</b>' : ''}</span><select data-f="${f}"><option value="">Not in file</option>${p.columns.map(c => `<option ${map[f] === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>`;
+  }
+  $('#map-go').onclick = () => {
+    const m = {}; document.querySelectorAll('[data-f]').forEach(s => { if (s.value) m[s.dataset.f] = s.value; });
+    const miss = missingRequired(m);
+    if (miss.length) { $('#map-msg').textContent = 'Still needed: ' + miss.map(label).join(', '); return; }
+    closeDrawer(); finishImport(m);
+  };
+}
+
+function managerReport() {
+  const r = S.report, ready = r.passing, d = new Date().toISOString().slice(0, 10);
+  const rows = r.groups.map(g => `<tr><td>${esc(WHY[g.rule]?.[0] || g.message)}</td><td>${esc(g.record)}</td><td>${esc(SOURCES[g.source])}</td><td style="text-align:right">${g.invoices.length}</td><td>${g.fix ? 'Fix ready' : 'Needs a person'}</td></tr>`).join('');
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>E-invoicing readiness ${d}</title><style>body{font:13px/1.5 system-ui,sans-serif;color:#18181B;margin:40px;max-width:900px}h1{font-size:20px}table{width:100%;border-collapse:collapse;margin-top:16px}td,th{text-align:left;padding:8px;border-bottom:1px solid #E7E7E4}th{color:#71717A;font-weight:500}.k{display:flex;gap:40px;margin-top:16px}.k b{display:block;font-size:24px}@media print{body{margin:16mm}}</style></head><body>
+  <h1>UAE e-invoicing readiness · ${esc(S.source)}</h1><p>${d} · Checked against PINT AE 1.0.4 and the Ministry of Finance mandatory fields V1.0.</p>
+  <div class="k"><div><b>${ready}</b>ready to send</div><div><b>${r.failing}</b>would be rejected</div><div><b>${r.groups.length}</b>root causes</div></div>
+  <table><thead><tr><th>Issue</th><th>Record</th><th>Fix in</th><th style="text-align:right">Invoices</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>
+  <h2 style="font-size:15px;margin-top:28px">Approved changes</h2><table><tbody>${S.log.map(l => `<tr><td>${esc(l.time)}</td><td>${esc(l.who)}</td><td>${esc(l.text)}</td></tr>`).join('') || '<tr><td>None yet</td></tr>'}</tbody></table>
+  <p style="color:#71717A;margin-top:24px">Pre-submission check. The Accredited Service Provider runs final validation.</p></body></html>`;
+}
 
 let host = null;
 if (window.claude?.use) window.claude.use('downloads').then(d => { host = d; }).catch(() => {});
+async function dlBlob(name, blob) {
+  if (host) { try { await host.save({ filename: name, data: blob }); } catch {} return; }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
 async function dl(name, text, type = 'text/plain') {
+  if (host && /\.xml$/.test(name)) return dlBlob(name.replace(/\.xml$/, '.zip'), zip([{ name, text }])); // xml is not on the host's download allowlist
   if (host) { try { await host.save({ filename: name, data: text }); } catch {} return; }
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
@@ -195,13 +280,21 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#search').oninput = e => { S.q = e.target.value; render(); };
   $('#dr-x').onclick = closeDrawer; $('#scrim').onclick = closeDrawer;
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); if (e.key === '/' && document.activeElement.tagName !== 'INPUT') { e.preventDefault(); $('#search').focus(); } });
-  const file = e => { const f = e.target.files[0]; if (!f) return; f.text().then(t => { try { const inv = rowsToInvoices(parseCSV(t)); if (!inv.length) throw 0; load(inv, f.name); } catch { toast('Could not read this file. Use the CSV template.'); } }); };
+  const file = e => { const f = e.target.files[0]; e.target.value = ''; if (f) importFile(f); };
   $('#file').onchange = file; $('#file2').onchange = file;
-  $('#demo').onclick = () => load(sampleInvoices(), 'Raml Home Trading LLC');
+  $('#demo').onclick = () => { S.company = null; load(sampleInvoices(), 'Raml Home Trading LLC (demo)'); };
   $('#rerun').onclick = () => { run(); toast('Re-checked against PINT AE 1.0.4'); };
   document.querySelectorAll('.tpl').forEach(b => b.onclick = () => dl('pint-ae-preflight-template.csv', invoicesToCSV(sampleInvoices().slice(0, 3)), 'text/csv'));
   $('#exp-csv').onclick = () => dl('invoices-corrected.csv', invoicesToCSV(S.invoices), 'text/csv');
-  $('#exp-log').onclick = () => dl('approval-log.csv', 'time,reviewer,change,invoices_cleared\n' + S.log.map(l => `${l.time},${l.who},"${l.text}",${l.cleared}`).join('\n'), 'text/csv');
+  $('#exp-zip').onclick = () => {
+    const ok = S.invoices.filter(i => !S.report.findings.some(f => f.invoice === i.invoice_no));
+    if (!ok.length) return toast('No invoices are ready yet.');
+    dlBlob(`pint-ae-ready-${ok.length}.zip`, zip(ok.map(i => ({ name: `${i.invoice_no.replace(/[^\w.-]/g, '_')}.xml`, text: toUBL(i) }))));
+  };
+  $('#exp-report').onclick = () => dl(`readiness-report-${new Date().toISOString().slice(0, 10)}.html`, managerReport(), 'text/html');
+  $('#exp-log').onclick = () => dl('approval-log.csv', 'time,reviewer,change,invoices_cleared\n' + S.log.map(l => [l.time, l.who, l.text, l.cleared].map(safeCell).join(',')).join('\n'), 'text/csv');
   $('#burger').onclick = () => document.body.classList.toggle('nav-open');
-  load(sampleInvoices(), 'Raml Home Trading LLC');
+  $('#co-save').onclick = saveCompany;
+  try { S.company = JSON.parse(localStorage.getItem('pf-company') || 'null'); } catch {}
+  load(sampleInvoices(), 'Raml Home Trading LLC (demo)');
 });
