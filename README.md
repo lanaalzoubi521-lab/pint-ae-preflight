@@ -2,6 +2,10 @@
 
 **Find the UAE e-invoices your ASP will reject, before you send them, and trace each one back to the single ERP record that causes it.**
 
+[![Live demo](https://img.shields.io/badge/live_demo-open-2F3BF5?style=flat-square)](https://lanaalzoubi521-lab.github.io/pint-ae-preflight/) [![Tests](https://github.com/lanaalzoubi521-lab/pint-ae-preflight/actions/workflows/test.yml/badge.svg)](https://github.com/lanaalzoubi521-lab/pint-ae-preflight/actions/workflows/test.yml) ![License: MIT](https://img.shields.io/badge/license-MIT-555?style=flat-square) ![Node 18+](https://img.shields.io/badge/node-18%2B-555?style=flat-square) ![Zero dependencies](https://img.shields.io/badge/dependencies-0-555?style=flat-square)
+
+**[Open the live demo →](https://lanaalzoubi521-lab.github.io/pint-ae-preflight/)** Runs in the browser with sample data. Nothing to install, and invoice data never leaves the page.
+
 From 1 January 2027, UAE businesses issue invoices as structured PINT AE XML through an Accredited Service Provider (ASP). The ASP validates every invoice and rejects the ones that break the rules. Most rejections do not come from the invoice itself. They come from master data: a customer address with no emirate code, an item whose unit is typed as "pcs", a mistyped TRN. One bad record breaks every invoice that uses it.
 
 Preflight reads a normal ERP invoice export, runs the UAE rules, and groups every failure by **root cause**: the record to fix, where it lives in the ERP, and how many invoices it clears.
@@ -17,6 +21,20 @@ Preflight reads a normal ERP invoice export, runs the UAE rules, and groups ever
 5. **Export** every ready invoice as PINT AE UBL 2.1 XML in one zip, a one-page readiness report for the finance manager, the corrected CSV, and the approval log.
 
 On the demo data, 83 of 84 invoices fail. Ten root causes explain all of them, and four approved fixes clear 39 invoices in one pass.
+
+## How it fits together
+
+```mermaid
+flowchart LR
+    A[ERP invoice export<br/>CSV] --> B[Import<br/>encoding, delimiter,<br/>column mapping]
+    B --> C[Rules engine<br/>MoF fields + PINT AE rules]
+    C --> D[Group by root cause<br/>record, ERP location,<br/>invoices blocked]
+    D --> E{Is the fix certain?}
+    E -- yes --> F[Proposed fix<br/>human approval,<br/>logged, undoable]
+    E -- no --> G[Left to finance<br/>with the exact record]
+    F --> C
+    C --> H[Export<br/>UBL 2.1 XML zip,<br/>manager report, corrected CSV]
+```
 
 ## Rules covered
 
@@ -47,6 +65,10 @@ On the demo data, 83 of 84 invoices fail. Ten root causes explain all of them, a
 Preflight is a pre-submission check on ERP data. The ASP still runs the full PINT AE schematron, and that remains the final word.
 
 **Current limits.** XML export covers AED invoices; foreign-currency invoices are checked but left out of the zip, because their AED line amounts and second tax total are not generated yet. Rules for special scenarios (free zone, deemed supply, margin scheme, disclosed agent, summary invoices) beyond the transaction-type format are not covered yet.
+
+## Built with
+
+Vanilla JavaScript (ES modules), no runtime dependencies · UBL 2.1 XML generation · `node:test` · GitHub Actions CI · Content Security Policy on the public build
 
 ## Run it
 

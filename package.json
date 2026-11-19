@@ -1,1 +1,33 @@
-{"name":"pint-ae-preflight","version":"1.0.0","type":"module","scripts":{"test":"node --test test/*.test.js","build":"node scripts/build.js"},"license":"MIT"}
+{
+  "name": "pint-ae-preflight",
+  "version": "1.0.0",
+  "description": "Pre-flight checker for UAE e-invoicing (PINT AE). Finds the invoices an ASP will reject, traces each to the ERP record that causes it, and fixes them in bulk.",
+  "keywords": [
+    "e-invoicing",
+    "uae",
+    "pint-ae",
+    "peppol",
+    "ubl",
+    "vat",
+    "erp",
+    "finance-automation"
+  ],
+  "homepage": "https://lanaalzoubi521-lab.github.io/pint-ae-preflight/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lanaalzoubi521-lab/pint-ae-preflight.git"
+  },
+  "bugs": {
+    "url": "https://github.com/lanaalzoubi521-lab/pint-ae-preflight/issues"
+  },
+  "author": "Lana Alzoubi (https://lanaalzoubi.com)",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "build": "node scripts/build.js"
+  }
+}
