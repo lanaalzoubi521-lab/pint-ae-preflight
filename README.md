@@ -2,7 +2,7 @@
 
 **Find the UAE e-invoices your ASP will reject, before you send them, and trace each one back to the single ERP record that causes it.**
 
-[![Live demo](https://img.shields.io/badge/live_demo-open-2F3BF5?style=flat-square)](https://lanaalzoubi521-lab.github.io/pint-ae-preflight/) [![Tests](https://github.com/lanaalzoubi521-lab/pint-ae-preflight/actions/workflows/test.yml/badge.svg)](https://github.com/lanaalzoubi521-lab/pint-ae-preflight/actions/workflows/test.yml) ![License: MIT](https://img.shields.io/badge/license-MIT-555?style=flat-square) ![Node 18+](https://img.shields.io/badge/node-18%2B-555?style=flat-square) ![Zero dependencies](https://img.shields.io/badge/dependencies-0-555?style=flat-square)
+[![Live demo](https://img.shields.io/badge/live_demo-open-2F3BF5?style=flat-square)](https://lanaalzoubi521-lab.github.io/pint-ae-preflight/) [![Tests](https://github.com/lanaalzoubi521-lab/pint-ae-preflight/actions/workflows/test.yml/badge.svg)](https://github.com/lanaalzoubi521-lab/pint-ae-preflight/actions/workflows/test.yml) ![All rights reserved](https://img.shields.io/badge/license-all_rights_reserved-555?style=flat-square) ![Node 18+](https://img.shields.io/badge/node-18%2B-555?style=flat-square) ![Zero dependencies](https://img.shields.io/badge/dependencies-0-555?style=flat-square)
 
 **[Open the live demo →](https://lanaalzoubi521-lab.github.io/pint-ae-preflight/)** Runs in the browser with sample data. Nothing to install, and invoice data never leaves the page.
 
@@ -104,4 +104,4 @@ test/          node:test suite
 
 Lana Alzoubi · AI & Automation · [lanaalzoubi.com](https://lanaalzoubi.com)
 
-MIT License.
+© 2026 Lana Alzoubi. All rights reserved. The code is published for review; reuse needs written permission. See [LICENSE](LICENSE). Demo data: Raml Home Trading LLC is a fictional company, and its TRNs are made up.
