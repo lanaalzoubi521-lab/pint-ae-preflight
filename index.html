@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PINT-AE Preflight</title>
+<meta name="description" content="Check ERP invoice data against the UAE e-invoicing rules before your ASP rejects it.">
+<style>
+/*FONTS*/
+:root{--paper:#F3F1EC;--ink:#0E0E0C;--mute:#6B6964;--line:rgba(14,14,12,.14);--acc:#2F3BF5;--e:cubic-bezier(.2,.7,0,1)}
+*{margin:0;padding:0;box-sizing:border-box}
+html{background:var(--paper)}
+body{font-family:Plex,system-ui,sans-serif;color:var(--ink);font-size:17px;line-height:1.5;-webkit-font-smoothing:antialiased;min-height:100vh}
+code,.mono{font-family:PlexMono,ui-monospace,monospace;font-size:.86em}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+a{color:inherit}
+header{position:fixed;inset:0 0 auto;display:flex;justify-content:space-between;align-items:center;padding:26px 56px;z-index:5;background:linear-gradient(var(--paper) 70%,transparent)}
+.mark{font-weight:500;letter-spacing:.2px}
+.mark b{color:var(--acc);font-weight:500}
+nav{display:flex;gap:30px;font-size:14px;color:var(--mute)}
+nav button{transition:color .3s}
+nav button.on{color:var(--ink)}
+nav button span{font-family:PlexMono;margin-right:8px;font-size:12px}
+.view{display:none;min-height:100vh;padding:140px 56px 80px;max-width:1360px;margin:0 auto}
+.view.on{display:block;animation:in .7s var(--e) both}
+.view.out{animation:out .42s var(--e) both}
+@keyframes in{from{opacity:0;transform:translateY(28px)}to{opacity:1;transform:none}}
+@keyframes out{to{opacity:0;transform:translateY(-22px)}}
+.k{font-size:14px;color:var(--mute);letter-spacing:.3px;margin-bottom:22px}
+h1{font-weight:500;font-size:clamp(44px,6.4vw,96px);line-height:1.02;letter-spacing:-.02em;max-width:13ch}
+h1 em{font-style:normal;color:var(--acc)}
+.lede{font-size:21px;line-height:1.45;color:#3A3935;max-width:34ch;margin-top:30px;font-weight:300}
+/* intro */
+#v-intro .grid{display:grid;grid-template-columns:1.25fr 1fr;gap:80px;align-items:end;min-height:calc(100vh - 220px)}
+.actions{display:flex;flex-direction:column;gap:0;border-top:1px solid var(--ink)}
+.actions>*{display:flex;justify-content:space-between;align-items:baseline;padding:26px 0;border-bottom:1px solid var(--line);font-size:22px;text-align:left;width:100%;transition:padding .5s var(--e),color .3s}
+.actions>*:hover{padding-left:14px;color:var(--acc)}
+.actions small{font-size:14px;color:var(--mute)}
+.actions input{display:none}
+.facts{display:grid;grid-template-columns:repeat(3,1fr);gap:40px;margin-top:90px;padding-top:28px;border-top:1px solid var(--line);font-size:15px;color:var(--mute)}
+.facts b{display:block;color:var(--ink);font-weight:500;font-size:28px;margin-bottom:6px}
+/* report */
+.rep{display:grid;grid-template-columns:minmax(320px,1fr) 1.5fr;gap:90px}
+.score{position:sticky;top:140px;align-self:start}
+.big{font-size:clamp(90px,12vw,190px);font-weight:500;line-height:.86;letter-spacing:-.04em;color:var(--acc)}
+.big small{font-size:.32em;color:var(--ink);letter-spacing:-.01em;margin-left:10px}
+.score p{font-size:22px;line-height:1.35;margin-top:22px;max-width:16ch}
+.score .sub{font-size:16px;color:var(--mute);margin-top:18px;max-width:32ch;line-height:1.5}
+.score .sub b{color:var(--ink);font-weight:500}
+.go{margin-top:40px;display:inline-flex;gap:14px;align-items:center;font-size:17px;border-bottom:1px solid var(--ink);padding-bottom:6px;transition:gap .4s var(--e)}
+.go:hover{gap:24px}
+.list-h{display:flex;justify-content:space-between;font-size:14px;color:var(--mute);padding-bottom:14px;border-bottom:1px solid var(--ink)}
+#causes{list-style:none}
+.cause{animation:in .8s var(--e) both;animation-delay:var(--d)}
+.row{display:grid;grid-template-columns:96px 1fr auto;gap:24px;align-items:start;width:100%;text-align:left;padding:28px 0;border-bottom:1px solid var(--line);transition:padding .5s var(--e)}
+.row:hover{padding-left:12px}
+.row:hover .act{color:var(--acc)}
+.cnt{font-size:44px;font-weight:500;line-height:1;letter-spacing:-.02em}
+.txt b{display:block;font-weight:500;font-size:19px}
+.txt span{display:block;color:#3A3935;margin-top:4px}
+.txt em{display:block;font-style:normal;font-size:13px;color:var(--mute);margin-top:10px}
+.act{font-size:14px;color:var(--mute);white-space:nowrap;padding-top:8px;transition:color .3s}
+.act code{color:var(--ink)}
+.clear{padding:40px 0;font-size:22px}
+#logwrap{margin-top:60px}
+#log{list-style:none;font-size:14px;color:#3A3935}
+#log li{padding:12px 0;border-bottom:1px solid var(--line)}
+#log code{color:var(--mute);margin-right:12px}
+/* cause */
+.back{font-size:14px;color:var(--mute);margin-bottom:40px;display:inline-block}
+.back:hover{color:var(--ink)}
+.cgrid{display:grid;grid-template-columns:1fr 1fr;gap:90px}.cgrid>div,.rep>div{min-width:0}.ch{overflow-wrap:anywhere}
+#c-count{color:var(--acc)}
+.ch{font-size:clamp(36px,4.4vw,64px);font-weight:500;line-height:1.04;letter-spacing:-.02em}
+.cwhy{font-size:22px;margin-top:22px;font-weight:300;line-height:1.4;max-width:30ch}
+dl{margin-top:44px;border-top:1px solid var(--ink)}
+dl div{display:grid;grid-template-columns:150px 1fr;gap:20px;padding:18px 0;border-bottom:1px solid var(--line);font-size:16px}
+dt{color:var(--mute);font-size:14px;padding-top:2px}
+#c-fix{margin-top:44px}
+#c-fix p{font-size:16px;color:#3A3935;max-width:44ch}
+.diff{display:flex;gap:18px;align-items:baseline;margin:20px 0 26px;font-family:PlexMono;font-size:15px}
+.diff span{color:var(--mute)}
+.diff s{color:var(--mute)}
+.diff b{color:var(--acc);font-weight:500;font-size:20px}
+.primary{background:var(--ink);color:var(--paper);padding:16px 28px;font-size:16px;transition:background .3s,transform .4s var(--e)}
+.primary:hover{background:var(--acc);transform:translateX(6px)}
+#c-fix small{display:block;margin-top:14px;font-size:13px;color:var(--mute)}
+.human{font-size:18px!important;color:var(--ink)!important}
+pre{font-family:PlexMono;font-size:13px;line-height:1.75;background:var(--ink);color:#C9C7C0;padding:28px 0;overflow:auto;margin-top:8px}
+pre span{display:block;padding:0 28px;white-space:pre}
+pre i{font-style:normal;color:#5E5C57;display:inline-block;width:34px}
+pre .hit{background:rgba(47,59,245,.32);color:#fff}
+.xmlh{font-size:14px;color:var(--mute)}
+#c-inv{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:16px;font-size:14px;color:#3A3935;max-height:260px;overflow:auto}
+/* export */
+#e-list{list-style:none;margin-top:40px;border-top:1px solid var(--ink);max-height:52vh;overflow:auto}
+#e-list li{display:grid;grid-template-columns:200px 1fr auto;gap:20px;padding:16px 0;border-bottom:1px solid var(--line);align-items:center}
+#e-list span{color:#3A3935}
+#e-list button{font-size:14px;color:var(--acc)}
+.ebtn{display:flex;gap:40px;margin-top:36px;flex-wrap:wrap}
+.ebtn button{border-bottom:1px solid var(--ink);padding-bottom:6px}
+.ebtn button:hover{color:var(--acc);border-color:var(--acc)}
+footer{font-size:13px;color:var(--mute);padding:0 56px 40px;max-width:1360px;margin:0 auto;display:flex;justify-content:space-between;gap:20px}
+@media(max-width:900px){
+  header{padding:18px 22px}nav{gap:16px;font-size:13px}nav button span{display:none}
+  .view{padding:96px 22px 60px}
+  #v-intro .grid,.rep,.cgrid{grid-template-columns:1fr;gap:50px}
+  #v-intro .grid{min-height:auto}
+  .facts{grid-template-columns:1fr;gap:22px;margin-top:56px}
+  .score{position:static}
+  .row{grid-template-columns:58px 1fr;gap:14px}.act{grid-column:2;padding-top:0}
+  .cnt{font-size:32px}
+  dl div{grid-template-columns:1fr;gap:4px}
+  #e-list li{grid-template-columns:1fr auto}#e-list span{display:none}
+  footer{padding:0 22px 30px;flex-direction:column}
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="mark">PINT-AE <b>Preflight</b></div>
+  <nav>
+    <button data-step="intro" class="on"><span>01</span>Load</button>
+    <button data-step="report"><span>02</span>Review</button>
+    <button data-step="export"><span>03</span>Export</button>
+  </nav>
+</header>
+
+<section class="view" id="v-intro">
+  <div class="grid">
+    <div>
+      <div class="k">UAE e-invoicing · mandatory from 1 January 2027</div>
+      <h1>Your ASP will reject what your ERP <em>never noticed.</em></h1>
+      <p class="lede">Run your invoice export through the UAE rules first. See every rejection before it happens, traced to the one record that causes it.</p>
+    </div>
+    <div class="actions">
+      <button id="demo">Run on demo data <small>84 invoices · Raml Home</small></button>
+      <label>Upload ERP export <small>CSV, one row per line</small><input type="file" id="file" accept=".csv,text/csv"></label>
+      <button id="tpl">Download CSV template <small>Column format</small></button>
+    </div>
+  </div>
+  <div class="facts">
+    <div><b>MoF V1.0</b>Built on the Ministry of Finance mandatory fields list</div>
+    <div><b>PINT AE 1.0.4</b>rule IDs checked and linked to the official specification</div>
+    <div><b>Runs in your browser</b>Invoice data never leaves this page</div>
+  </div>
+</section>
+
+<section class="view" id="v-report">
+  <div class="rep">
+    <div class="score">
+      <div class="k" id="src">Raml Home (demo data)</div>
+      <div class="big"><span id="n-fail">0</span><small>/ <span id="n-total">0</span></small></div>
+      <p>invoices would be rejected today.</p>
+      <div class="sub" id="lede-fixes"><b><span id="n-causes">0</span> root causes.</b> <span id="n-auto">0</span> can be fixed once at the source, clearing <b><span id="n-after">0</span> invoices</b>.</div>
+      <button class="go" id="to-export"><span id="ready-n">0</span> ready to send <span>→</span></button>
+    </div>
+    <div>
+      <div class="list-h"><span>Invoices affected · Root cause</span><span>Action</span></div>
+      <ul id="causes"></ul>
+      <div id="logwrap" style="display:none"><div class="list-h"><span>Approved fixes</span><span>Audit log</span></div><ul id="log"></ul></div>
+    </div>
+  </div>
+</section>
+
+<section class="view" id="v-cause">
+  <button class="back" id="back">← All causes</button>
+  <div class="cgrid">
+    <div>
+      <div class="k"><span id="c-count"></span> invoices affected</div>
+      <div class="ch" id="c-record"></div>
+      <p class="cwhy" id="c-why"></p>
+      <dl>
+        <div><dt>Validator says</dt><dd id="c-msg"></dd></div>
+        <div><dt>Fix it in</dt><dd><b id="c-src"></b><br><span id="c-where"></span></dd></div>
+        <div><dt>Official rule</dt><dd id="c-rule"></dd></div>
+      </dl>
+      <div id="c-fix"></div>
+    </div>
+    <div>
+      <div class="xmlh">What the ASP would receive</div>
+      <pre id="c-xml"></pre>
+      <div class="xmlh" style="margin-top:36px">Affected invoices</div>
+      <div id="c-inv"></div>
+    </div>
+  </div>
+</section>
+
+<section class="view" id="v-export">
+  <button class="back" id="e-back">← Review</button>
+  <div class="k">PINT AE · UBL 2.1</div>
+  <div class="ch"><span id="e-n" style="color:var(--acc)">0</span> <span id="e-w">invoices</span> ready for your ASP.</div>
+  <div class="ebtn">
+    <button id="e-csv">Download corrected CSV</button>
+    <button id="e-log">Download fix log</button>
+  </div>
+  <ul id="e-list"></ul>
+</section>
+
+<footer>
+  <span>Pre-submission check. Final validation happens at your Accredited Service Provider.</span>
+  <span>Built by Lana Alzoubi · <a href="https://lanaalzoubi.com" target="_blank" rel="noopener">lanaalzoubi.com</a></span>
+</footer>
+<script>
+/*APP*/
+</script>
+</body>
+</html>
