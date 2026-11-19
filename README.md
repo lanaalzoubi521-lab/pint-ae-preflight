@@ -6,7 +6,7 @@
 
 **[Open the live demo →](https://lanaalzoubi521-lab.github.io/pint-ae-preflight/)** Runs in the browser with sample data. Nothing to install, and invoice data never leaves the page.
 
-From 1 January 2027, UAE businesses issue invoices as structured PINT AE XML through an Accredited Service Provider (ASP). The ASP validates every invoice and rejects the ones that break the rules. Most rejections do not come from the invoice itself. They come from master data: a customer address with no emirate code, an item whose unit is typed as "pcs", a mistyped TRN. One bad record breaks every invoice that uses it.
+UAE e-invoicing goes live in phases: from 1 January 2027 for businesses with revenue of AED 50 million or more, from 1 July 2027 for the rest. From then on, businesses issue invoices as structured PINT AE XML through an Accredited Service Provider (ASP). The ASP validates every invoice and rejects the ones that break the rules. Most rejections do not come from the invoice itself. They come from master data: a customer address with no emirate code, an item whose unit is typed as "pcs", a mistyped TRN. One bad record breaks every invoice that uses it.
 
 Preflight reads a normal ERP invoice export, runs the UAE rules, and groups every failure by **root cause**: the record to fix, where it lives in the ERP, and how many invoices it clears.
 
