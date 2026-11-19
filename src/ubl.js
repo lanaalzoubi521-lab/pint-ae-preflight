@@ -1,6 +1,6 @@
 // Builds a PINT AE (UBL 2.1) invoice for invoices that pass preflight.
 // Intended as the hand-off payload to an Accredited Service Provider, who runs final schematron validation.
-const x = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const x = s => String(s ?? '').replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\uFFFE\uFFFF]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const m = v => (Math.round(Number(v) * 100) / 100).toFixed(2);
 
 export function toUBL(inv) {

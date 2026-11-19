@@ -21,7 +21,7 @@ const WHY = {
 const RULE_URL = id => (id.startsWith('MF') ? 'https://mof.gov.ae/wp-content/uploads/2026/02/UAE-Electronic-Invoice-mandatory-fields_V-1.0-23Feb2026.pdf' : `https://docs.peppol.eu/poac/ae/pint-ae/trn-invoice/rule/${id}/`);
 const XML_HINT = { buyer_subdivision: 'CountrySubentity', seller_subdivision: 'CountrySubentity', uom: 'unitCode', item_description: 'cbc:Description', due_date: 'IssueDate', buyer_trn: 'PartyTaxScheme', line_net: 'LineExtensionAmount', tax_rate: 'cbc:Percent', transaction_flags: 'ProfileExecutionID', base_qty: 'BaseQuantity', gross_price: 'BaseAmount' };
 
-const S = { raw: [], company: null, invoices: [], report: null, log: [], undo: [], mapping: null, pending: null, view: 'overview', invFilter: 'all', q: '', open: null, source: 'Raml Home Trading LLC', loadedAt: null };
+const S = { applied: [], raw: [], company: null, invoices: [], report: null, log: [], undo: [], mapping: null, pending: null, view: 'overview', invFilter: 'all', q: '', open: null, source: 'Raml Home Trading LLC', loadedAt: null };
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const aed = v => 'AED ' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -29,8 +29,9 @@ const total = inv => inv.lines.reduce((a, l) => a + Number(l.line_net || 0) * (1
 const sevOf = g => (g.fix ? 'fixable' : 'manual');
 
 function run() { S.report = validateBatch(S.invoices); render(); }
+function rebuild() { let inv = applyCompany(S.raw, S.company); for (const g of S.applied) inv = applyFix(inv, g); return inv; }
 function load(invoices, label) {
-  S.raw = invoices; invoices = applyCompany(invoices, S.company);
+  S.raw = invoices; S.applied = []; invoices = applyCompany(invoices, S.company);
   S.invoices = invoices; S.log = []; S.source = label; S.loadedAt = new Date();
   document.body.classList.remove('empty');
   run(); nav('overview');
@@ -142,7 +143,7 @@ function openIssue(k) {
       <div><dt>Record</dt><dd>${esc(g.record)}</dd></div>
       <div><dt>Fix in</dt><dd>${esc(SOURCES[g.source])}</dd></div>
       <div><dt>Invoices blocked</dt><dd>${g.invoices.length}</dd></div>
-      <div><dt>Validator message</dt><dd>${esc(g.message)}</dd></div>
+      <div><dt>Example message</dt><dd>${esc(g.message)}</dd></div>
     </dl>
     <div class="sec">How to fix</div><p class="dr-p">${esc(where)}</p>
     ${g.fix ? `<div class="change"><span class="mono mute">${esc(g.field)}</span><span class="from">${esc(currentValue(g) || 'empty')}</span><span>→</span><b>${esc(g.fix.value)}</b></div>
@@ -177,8 +178,8 @@ function openInvoice(no) {
 function approve(g) {
   if (!g?.fix) return;
   const before = S.report.failing;
-  S.undo.push(S.invoices);
-  S.invoices = applyFix(S.invoices, g);
+  S.applied.push({ source: g.source, record: g.record, field: g.field, fix: { ...g.fix } });
+  S.invoices = rebuild();
   S.report = validateBatch(S.invoices);
   const t = new Date();
   S.log.unshift({ time: t.toISOString().slice(0, 16).replace('T', ' '), who: 'Finance reviewer', text: `${SOURCES[g.source]} · ${g.record}: ${g.field} set to ${g.fix.value}`, cleared: before - S.report.failing });
@@ -191,8 +192,8 @@ function toast(t, label, fn) {
   el.classList.add('on'); clearTimeout(toast.h); toast.h = setTimeout(() => el.classList.remove('on'), label ? 6000 : 2600);
 }
 function undo() {
-  if (!S.undo.length) return;
-  S.invoices = S.undo.pop(); const l = S.log.shift();
+  if (!S.applied.length) return;
+  S.applied.pop(); S.invoices = rebuild(); const l = S.log.shift();
   S.log.unshift({ time: new Date().toISOString().slice(0, 16).replace('T', ' '), who: 'Finance reviewer', text: `Undone: ${l ? l.text : 'last change'}`, cleared: 0 });
   run(); toast('Change undone');
 }
@@ -222,7 +223,7 @@ function renderCompany() {
 function saveCompany() {
   const c = {}; document.querySelectorAll('[data-co]').forEach(el => { c[el.dataset.co] = el.value.trim(); });
   S.company = c; try { localStorage.setItem('pf-company', JSON.stringify(c)); } catch {}
-  S.invoices = applyCompany(S.raw, c); run(); toast('Company details applied to every invoice');
+  S.invoices = rebuild(); run(); toast('Company details applied to every invoice. Approved fixes kept.');
 }
 function finishImport(map) {
   const p = S.pending; if (!p) return;
@@ -287,8 +288,10 @@ document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('.tpl').forEach(b => b.onclick = () => dl('pint-ae-preflight-template.csv', invoicesToCSV(sampleInvoices().slice(0, 3)), 'text/csv'));
   $('#exp-csv').onclick = () => dl('invoices-corrected.csv', invoicesToCSV(S.invoices), 'text/csv');
   $('#exp-zip').onclick = () => {
-    const ok = S.invoices.filter(i => !S.report.findings.some(f => f.invoice === i.invoice_no));
-    if (!ok.length) return toast('No invoices are ready yet.');
+    const ready = S.invoices.filter(i => !S.report.findings.some(f => f.invoice === i.invoice_no));
+    const ok = ready.filter(i => String(i.currency).toUpperCase() === 'AED');
+    if (ready.length > ok.length) toast(`${ready.length - ok.length} foreign-currency invoices left out: XML export currently covers AED invoices only.`);
+    if (!ok.length) return ready.length ? null : toast('No invoices are ready yet.');
     dlBlob(`pint-ae-ready-${ok.length}.zip`, zip(ok.map(i => ({ name: `${i.invoice_no.replace(/[^\w.-]/g, '_')}.xml`, text: toUBL(i) }))));
   };
   $('#exp-report').onclick = () => dl(`readiness-report-${new Date().toISOString().slice(0, 10)}.html`, managerReport(), 'text/html');

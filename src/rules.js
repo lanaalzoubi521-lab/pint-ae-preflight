@@ -18,7 +18,10 @@ export const CITY_TO_SUBDIVISION = { 'abu dhabi': 'AUH', 'al ain': 'AUH', dubai:
 
 const blank = v => v === undefined || v === null || String(v).trim() === '';
 const num = v => (blank(v) ? NaN : Number(v));
-const r2 = v => Math.round(v * 100) / 100;
+const r2 = v => Math.round(Number((v * 100).toFixed(6))) / 100; // decimal-safe: 1 x 1.005 rounds to 1.01, as XPath decimals do
+const isNum = v => /^-?\d+(\.\d+)?$/.test(String(v).trim());
+const isAE = c => String(c ?? '').trim().toUpperCase() === 'AE';
+const YES = v => /^(yes|y|true|1|نعم)$/i.test(String(v ?? '').trim());
 
 // Where the fix lives in the ERP. Drives the "fix once, clear many" grouping.
 export const SOURCES = {
@@ -101,7 +104,7 @@ export function validateInvoice(inv) {
     out.push(f('ibr-055-ae', inv, 'document', inv.invoice_no, 'preceding_invoice', 'Credit note does not reference the invoice it corrects.'));
 
   // UAE buyers are addressed on the network by their TIN (scheme 0235)
-  if (inv.buyer_country === 'AE' && !blank(inv.buyer_endpoint) && !/^1\d{9}$/.test(String(inv.buyer_endpoint)))
+  if (isAE(inv.buyer_country) && !blank(inv.buyer_endpoint) && !/^1\d{9}$/.test(String(inv.buyer_endpoint)))
     out.push(f('MF-22', inv, 'customer', recordKey('customer', inv), 'buyer_endpoint', `Buyer electronic address "${inv.buyer_endpoint}" must be the buyer's 10-digit TIN (1XXXXXXXXX).`));
 
   if (!blank(type) && !INVOICE_TYPES[type])
@@ -112,12 +115,12 @@ export function validateInvoice(inv) {
 
   // ibr-132-ae: TRN = 15 digits, starts with 1, ends with 03
   const trnOk = v => /^1\d{12}03$/.test(String(v));
-  if (!blank(inv.seller_trn) && inv.seller_country === 'AE' && !trnOk(inv.seller_trn))
+  if (!blank(inv.seller_trn) && isAE(inv.seller_country) && !trnOk(inv.seller_trn))
     out.push(f('ibr-132-ae', inv, 'company', recordKey('company', inv), 'seller_trn', `Seller TRN "${inv.seller_trn}" must be 15 digits, starting with 1 and ending with 03.`));
-  if (String(inv.buyer_vat_registered).toLowerCase() === 'yes') {
+  if (YES(inv.buyer_vat_registered)) {
     if (blank(inv.buyer_trn))
       out.push(f('MF-24', inv, 'customer', recordKey('customer', inv), 'buyer_trn', 'Buyer is VAT registered but the TRN is missing.'));
-    else if (inv.buyer_country === 'AE' && !trnOk(inv.buyer_trn))
+    else if (isAE(inv.buyer_country) && !trnOk(inv.buyer_trn))
       out.push(f('ibr-132-ae', inv, 'customer', recordKey('customer', inv), 'buyer_trn', `Buyer TRN "${inv.buyer_trn}" must be 15 digits, starting with 1 and ending with 03.`));
   }
 
@@ -132,12 +135,13 @@ export function validateInvoice(inv) {
   // ibr-128-ae: AE subdivision codes
   for (const side of ['seller', 'buyer']) {
     const c = inv[`${side}_country`], s = inv[`${side}_subdivision`];
-    if (c === 'AE' && !blank(s) && !SUBDIVISIONS.includes(String(s).trim())) {
+    if (!blank(c) && !/^[A-Z]{2}$/.test(String(c).trim())) out.push(f(side === 'seller' ? 'MF-20' : 'MF-29', inv, side === 'seller' ? 'company' : 'customer', recordKey(side === 'seller' ? 'company' : 'customer', inv), `${side}_country`, `Country code "${c}" must be two capital letters (ISO 3166-1), such as AE.`, String(c).trim().length === 2 ? { fix: { field: `${side}_country`, value: String(c).trim().toUpperCase() } } : {}));
+    if (isAE(c) && !blank(s) && !SUBDIVISIONS.includes(String(s).trim())) {
       const src = side === 'seller' ? 'company' : 'customer';
       const guess = CITY_TO_SUBDIVISION[String(s).trim().toLowerCase()];
       out.push(f('ibr-128-ae', inv, src, recordKey(src, inv), `${side}_subdivision`, `Country subdivision "${s}" must be one of ${SUBDIVISIONS.join(', ')}.`, guess ? { fix: { field: `${side}_subdivision`, value: guess } } : {}));
     }
-    if (c === 'AE' && blank(s)) {
+    if (isAE(c) && blank(s)) {
       const src = side === 'seller' ? 'company' : 'customer';
       const guess = CITY_TO_SUBDIVISION[String(inv[`${side}_city`] || '').trim().toLowerCase()];
       const idx = out.findIndex(x => x.field === `${side}_subdivision` && x.rule.startsWith('MF'));
@@ -168,7 +172,7 @@ export function validateInvoice(inv) {
       if (blank(l[key])) out.push(f(rule, inv, source, recordKey(source, inv, l), key, `${label} is missing on ${lineRef}.`, { line: l.line_id }));
     }
     for (const k of ['qty', 'net_price', 'line_net', 'tax_rate', 'gross_price', 'base_qty'])
-      if (!blank(l[k]) && isNaN(Number(l[k]))) out.push(f(k === 'qty' ? 'MF-40' : 'MF-42', inv, 'document', inv.invoice_no, k, `${lineRef}: "${l[k]}" in ${k} is not a number.`, { line: l.line_id }));
+      if (!blank(l[k]) && !isNum(l[k])) out.push(f(k === 'qty' ? 'MF-40' : 'MF-42', inv, 'document', inv.invoice_no, k, `${lineRef}: "${l[k]}" in ${k} is not a number.`, { line: l.line_id }));
     if (blank(l.line_id)) out.push(f('MF-39', inv, 'document', inv.invoice_no, 'line_id', 'Invoice line identifier is missing.'));
 
     // ibr-125-ae item description
@@ -199,8 +203,12 @@ export function validateInvoice(inv) {
       out.push(f('ibr-120-ae', inv, 'tax', recordKey('tax', inv, l), 'tax_rate', `Zero rated ${lineRef} carries ${rate}% VAT. Zero rated must be 0.`, { line: l.line_id }));
 
     // ibr-147-ae line net = qty * (net price / base qty)
-    const q = num(l.qty), p = num(l.net_price), b = num(l.base_qty) || 1, n = num(l.line_net);
-    if (!isNaN(q) && !isNaN(p) && !isNaN(n) && r2(n) !== r2(q * (p / b)))
+    if (!blank(l.base_qty) && isNum(l.base_qty) && Number(l.base_qty) <= 0)
+      out.push(f('MF-45', inv, 'item', recordKey('item', inv, l), 'base_qty', `${lineRef}: price base quantity must be greater than zero.`, { line: l.line_id, fix: { field: 'base_qty', value: '1', scope: 'item' } }));
+    if (isNum(l.gross_price) && isNum(l.net_price) && Number(l.net_price) > Number(l.gross_price))
+      out.push(f('MF-44', inv, 'item', recordKey('item', inv, l), 'gross_price', `${lineRef}: net price ${l.net_price} is higher than gross price ${l.gross_price}. Gross is the price before discount.`, { line: l.line_id }));
+    const q = num(l.qty), p = num(l.net_price), b = (Number(l.base_qty) > 0 ? num(l.base_qty) : 1), n = num(l.line_net);
+    if ([l.qty, l.net_price, l.line_net].every(isNum) && r2(n) !== r2(q * (p / b)))
       out.push(f('ibr-147-ae', inv, 'document', inv.invoice_no, 'line_net', `${lineRef}: net amount ${n.toFixed(2)} does not equal ${q} × ${p.toFixed(2)}${b !== 1 ? ' / ' + b : ''} = ${r2(q * (p / b)).toFixed(2)}.`, { line: l.line_id }));
 
     // ibr-104-ae AED amounts when line VAT info present

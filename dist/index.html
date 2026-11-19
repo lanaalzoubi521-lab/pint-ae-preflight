@@ -292,7 +292,10 @@ const CITY_TO_SUBDIVISION = { 'abu dhabi': 'AUH', 'al ain': 'AUH', dubai: 'DXB',
 
 const blank = v => v === undefined || v === null || String(v).trim() === '';
 const num = v => (blank(v) ? NaN : Number(v));
-const r2 = v => Math.round(v * 100) / 100;
+const r2 = v => Math.round(Number((v * 100).toFixed(6))) / 100; // decimal-safe: 1 x 1.005 rounds to 1.01, as XPath decimals do
+const isNum = v => /^-?\d+(\.\d+)?$/.test(String(v).trim());
+const isAE = c => String(c ?? '').trim().toUpperCase() === 'AE';
+const YES = v => /^(yes|y|true|1|نعم)$/i.test(String(v ?? '').trim());
 
 // Where the fix lives in the ERP. Drives the "fix once, clear many" grouping.
 const SOURCES = {
@@ -375,7 +378,7 @@ function validateInvoice(inv) {
     out.push(f('ibr-055-ae', inv, 'document', inv.invoice_no, 'preceding_invoice', 'Credit note does not reference the invoice it corrects.'));
 
   // UAE buyers are addressed on the network by their TIN (scheme 0235)
-  if (inv.buyer_country === 'AE' && !blank(inv.buyer_endpoint) && !/^1\d{9}$/.test(String(inv.buyer_endpoint)))
+  if (isAE(inv.buyer_country) && !blank(inv.buyer_endpoint) && !/^1\d{9}$/.test(String(inv.buyer_endpoint)))
     out.push(f('MF-22', inv, 'customer', recordKey('customer', inv), 'buyer_endpoint', `Buyer electronic address "${inv.buyer_endpoint}" must be the buyer's 10-digit TIN (1XXXXXXXXX).`));
 
   if (!blank(type) && !INVOICE_TYPES[type])
@@ -386,12 +389,12 @@ function validateInvoice(inv) {
 
   // ibr-132-ae: TRN = 15 digits, starts with 1, ends with 03
   const trnOk = v => /^1\d{12}03$/.test(String(v));
-  if (!blank(inv.seller_trn) && inv.seller_country === 'AE' && !trnOk(inv.seller_trn))
+  if (!blank(inv.seller_trn) && isAE(inv.seller_country) && !trnOk(inv.seller_trn))
     out.push(f('ibr-132-ae', inv, 'company', recordKey('company', inv), 'seller_trn', `Seller TRN "${inv.seller_trn}" must be 15 digits, starting with 1 and ending with 03.`));
-  if (String(inv.buyer_vat_registered).toLowerCase() === 'yes') {
+  if (YES(inv.buyer_vat_registered)) {
     if (blank(inv.buyer_trn))
       out.push(f('MF-24', inv, 'customer', recordKey('customer', inv), 'buyer_trn', 'Buyer is VAT registered but the TRN is missing.'));
-    else if (inv.buyer_country === 'AE' && !trnOk(inv.buyer_trn))
+    else if (isAE(inv.buyer_country) && !trnOk(inv.buyer_trn))
       out.push(f('ibr-132-ae', inv, 'customer', recordKey('customer', inv), 'buyer_trn', `Buyer TRN "${inv.buyer_trn}" must be 15 digits, starting with 1 and ending with 03.`));
   }
 
@@ -406,12 +409,13 @@ function validateInvoice(inv) {
   // ibr-128-ae: AE subdivision codes
   for (const side of ['seller', 'buyer']) {
     const c = inv[`${side}_country`], s = inv[`${side}_subdivision`];
-    if (c === 'AE' && !blank(s) && !SUBDIVISIONS.includes(String(s).trim())) {
+    if (!blank(c) && !/^[A-Z]{2}$/.test(String(c).trim())) out.push(f(side === 'seller' ? 'MF-20' : 'MF-29', inv, side === 'seller' ? 'company' : 'customer', recordKey(side === 'seller' ? 'company' : 'customer', inv), `${side}_country`, `Country code "${c}" must be two capital letters (ISO 3166-1), such as AE.`, String(c).trim().length === 2 ? { fix: { field: `${side}_country`, value: String(c).trim().toUpperCase() } } : {}));
+    if (isAE(c) && !blank(s) && !SUBDIVISIONS.includes(String(s).trim())) {
       const src = side === 'seller' ? 'company' : 'customer';
       const guess = CITY_TO_SUBDIVISION[String(s).trim().toLowerCase()];
       out.push(f('ibr-128-ae', inv, src, recordKey(src, inv), `${side}_subdivision`, `Country subdivision "${s}" must be one of ${SUBDIVISIONS.join(', ')}.`, guess ? { fix: { field: `${side}_subdivision`, value: guess } } : {}));
     }
-    if (c === 'AE' && blank(s)) {
+    if (isAE(c) && blank(s)) {
       const src = side === 'seller' ? 'company' : 'customer';
       const guess = CITY_TO_SUBDIVISION[String(inv[`${side}_city`] || '').trim().toLowerCase()];
       const idx = out.findIndex(x => x.field === `${side}_subdivision` && x.rule.startsWith('MF'));
@@ -442,7 +446,7 @@ function validateInvoice(inv) {
       if (blank(l[key])) out.push(f(rule, inv, source, recordKey(source, inv, l), key, `${label} is missing on ${lineRef}.`, { line: l.line_id }));
     }
     for (const k of ['qty', 'net_price', 'line_net', 'tax_rate', 'gross_price', 'base_qty'])
-      if (!blank(l[k]) && isNaN(Number(l[k]))) out.push(f(k === 'qty' ? 'MF-40' : 'MF-42', inv, 'document', inv.invoice_no, k, `${lineRef}: "${l[k]}" in ${k} is not a number.`, { line: l.line_id }));
+      if (!blank(l[k]) && !isNum(l[k])) out.push(f(k === 'qty' ? 'MF-40' : 'MF-42', inv, 'document', inv.invoice_no, k, `${lineRef}: "${l[k]}" in ${k} is not a number.`, { line: l.line_id }));
     if (blank(l.line_id)) out.push(f('MF-39', inv, 'document', inv.invoice_no, 'line_id', 'Invoice line identifier is missing.'));
 
     // ibr-125-ae item description
@@ -473,8 +477,12 @@ function validateInvoice(inv) {
       out.push(f('ibr-120-ae', inv, 'tax', recordKey('tax', inv, l), 'tax_rate', `Zero rated ${lineRef} carries ${rate}% VAT. Zero rated must be 0.`, { line: l.line_id }));
 
     // ibr-147-ae line net = qty * (net price / base qty)
-    const q = num(l.qty), p = num(l.net_price), b = num(l.base_qty) || 1, n = num(l.line_net);
-    if (!isNaN(q) && !isNaN(p) && !isNaN(n) && r2(n) !== r2(q * (p / b)))
+    if (!blank(l.base_qty) && isNum(l.base_qty) && Number(l.base_qty) <= 0)
+      out.push(f('MF-45', inv, 'item', recordKey('item', inv, l), 'base_qty', `${lineRef}: price base quantity must be greater than zero.`, { line: l.line_id, fix: { field: 'base_qty', value: '1', scope: 'item' } }));
+    if (isNum(l.gross_price) && isNum(l.net_price) && Number(l.net_price) > Number(l.gross_price))
+      out.push(f('MF-44', inv, 'item', recordKey('item', inv, l), 'gross_price', `${lineRef}: net price ${l.net_price} is higher than gross price ${l.gross_price}. Gross is the price before discount.`, { line: l.line_id }));
+    const q = num(l.qty), p = num(l.net_price), b = (Number(l.base_qty) > 0 ? num(l.base_qty) : 1), n = num(l.line_net);
+    if ([l.qty, l.net_price, l.line_net].every(isNum) && r2(n) !== r2(q * (p / b)))
       out.push(f('ibr-147-ae', inv, 'document', inv.invoice_no, 'line_net', `${lineRef}: net amount ${n.toFixed(2)} does not equal ${q} × ${p.toFixed(2)}${b !== 1 ? ' / ' + b : ''} = ${r2(q * (p / b)).toFixed(2)}.`, { line: l.line_id }));
 
     // ibr-104-ae AED amounts when line VAT info present
@@ -548,7 +556,7 @@ function parseCSV(text, delim = detectDelimiter(text)) {
       if (c === '"' && text[i + 1] === '"') { cell += '"'; i++; }
       else if (c === '"') q = false;
       else cell += c;
-    } else if (c === '"') q = true;
+    } else if (c === '"' && cell === '') q = true; // a quote opens a quoted cell only at its start; 12" stays literal
     else if (c === delim) { row.push(cell); cell = ''; }
     else if (c === '\n' || c === '\r') {
       if (c === '\r' && text[i + 1] === '\n') i++;
@@ -616,7 +624,7 @@ const missingRequired = map => REQUIRED.filter(f => !map[f]);
 
 const AR_DIGITS = '٠١٢٣٤٥٦٧٨٩';
 function normalizeNumber(v) {
-  let s = String(v ?? '').trim().replace(/[٠-٩]/g, d => AR_DIGITS.indexOf(d)).replace(/[\s ]/g, '');
+  let s = String(v ?? '').trim().replace(/[٠-٩]/g, d => AR_DIGITS.indexOf(d)).replace(/^(aed|dhs?|usd|sar|\$|د\.إ|درهم)\s*/i, '').replace(/\s*(aed|dhs?|usd|sar|درهم)$/i, '').replace(/[\s ]/g, '');
   if (!s) return '';
   if (/^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(s)) s = s.replace(/,/g, '');          // 1,234.50
   else if (/^-?\d{1,3}(\.\d{3})+(,\d+)?$/.test(s)) s = s.replace(/\./g, '').replace(',', '.'); // 1.234,50
@@ -634,7 +642,7 @@ function rowsToInvoices(rows, mapping = null) {
     for (const f of NUMERIC) r[f] = normalizeNumber(r[f]);
     const key = r.invoice_no;
     let inv = map.get(key);
-    if (inv && (inv.buyer_name !== r.buyer_name || inv.invoice_date !== r.invoice_date)) { inv._duplicate = true; inv = null; }
+    if (inv && (inv.buyer_name !== r.buyer_name || inv.invoice_date !== r.invoice_date || inv.currency !== r.currency || inv.type_code !== r.type_code)) { inv._duplicate = true; inv = null; }
     if (!inv) {
       const head = {}; for (const f of HEADER_FIELDS) head[f] = r[f];
       inv = { ...head, lines: [] };
@@ -651,7 +659,7 @@ function rowsToInvoices(rows, mapping = null) {
 // CSV out. Cells that a spreadsheet would run as a formula are neutralised.
 function safeCell(v) {
   let s = String(v ?? '');
-  if (/^[=+\-@\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s)) s = "'" + s;
+  if (/^\s*[=+\-@\t\r＝＋－＠]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s)) s = "'" + s;
   return /[",\n\r;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 function invoicesToCSV(invoices) {
@@ -664,7 +672,8 @@ function invoicesToCSV(invoices) {
 const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
 const crc32 = b => { let c = 0xffffffff; for (let i = 0; i < b.length; i++) c = CRC[(c ^ b[i]) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
 function zip(files) {
-  const enc = new TextEncoder(), parts = [], dir = [];
+  const enc = new TextEncoder(), parts = [], dir = [], used = new Set();
+  files = files.map(f => { let n = f.name, i = 2; while (used.has(n.toLowerCase())) n = f.name.replace(/(\.[^.]+)?$/, m => `-${i++}${m}`); used.add(n.toLowerCase()); return { ...f, name: n }; });
   let off = 0;
   for (const f of files) {
     const name = enc.encode(f.name), data = enc.encode(f.text), crc = crc32(data);
@@ -750,7 +759,7 @@ function sampleInvoices() {
 
 // Builds a PINT AE (UBL 2.1) invoice for invoices that pass preflight.
 // Intended as the hand-off payload to an Accredited Service Provider, who runs final schematron validation.
-const x = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const x = s => String(s ?? '').replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\uFFFE\uFFFF]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const m = v => (Math.round(Number(v) * 100) / 100).toFixed(2);
 
 function toUBL(inv) {
@@ -874,7 +883,7 @@ const WHY = {
 const RULE_URL = id => (id.startsWith('MF') ? 'https://mof.gov.ae/wp-content/uploads/2026/02/UAE-Electronic-Invoice-mandatory-fields_V-1.0-23Feb2026.pdf' : `https://docs.peppol.eu/poac/ae/pint-ae/trn-invoice/rule/${id}/`);
 const XML_HINT = { buyer_subdivision: 'CountrySubentity', seller_subdivision: 'CountrySubentity', uom: 'unitCode', item_description: 'cbc:Description', due_date: 'IssueDate', buyer_trn: 'PartyTaxScheme', line_net: 'LineExtensionAmount', tax_rate: 'cbc:Percent', transaction_flags: 'ProfileExecutionID', base_qty: 'BaseQuantity', gross_price: 'BaseAmount' };
 
-const S = { raw: [], company: null, invoices: [], report: null, log: [], undo: [], mapping: null, pending: null, view: 'overview', invFilter: 'all', q: '', open: null, source: 'Raml Home Trading LLC', loadedAt: null };
+const S = { applied: [], raw: [], company: null, invoices: [], report: null, log: [], undo: [], mapping: null, pending: null, view: 'overview', invFilter: 'all', q: '', open: null, source: 'Raml Home Trading LLC', loadedAt: null };
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const aed = v => 'AED ' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -882,8 +891,9 @@ const total = inv => inv.lines.reduce((a, l) => a + Number(l.line_net || 0) * (1
 const sevOf = g => (g.fix ? 'fixable' : 'manual');
 
 function run() { S.report = validateBatch(S.invoices); render(); }
+function rebuild() { let inv = applyCompany(S.raw, S.company); for (const g of S.applied) inv = applyFix(inv, g); return inv; }
 function load(invoices, label) {
-  S.raw = invoices; invoices = applyCompany(invoices, S.company);
+  S.raw = invoices; S.applied = []; invoices = applyCompany(invoices, S.company);
   S.invoices = invoices; S.log = []; S.source = label; S.loadedAt = new Date();
   document.body.classList.remove('empty');
   run(); nav('overview');
@@ -995,7 +1005,7 @@ function openIssue(k) {
       <div><dt>Record</dt><dd>${esc(g.record)}</dd></div>
       <div><dt>Fix in</dt><dd>${esc(SOURCES[g.source])}</dd></div>
       <div><dt>Invoices blocked</dt><dd>${g.invoices.length}</dd></div>
-      <div><dt>Validator message</dt><dd>${esc(g.message)}</dd></div>
+      <div><dt>Example message</dt><dd>${esc(g.message)}</dd></div>
     </dl>
     <div class="sec">How to fix</div><p class="dr-p">${esc(where)}</p>
     ${g.fix ? `<div class="change"><span class="mono mute">${esc(g.field)}</span><span class="from">${esc(currentValue(g) || 'empty')}</span><span>→</span><b>${esc(g.fix.value)}</b></div>
@@ -1030,8 +1040,8 @@ function openInvoice(no) {
 function approve(g) {
   if (!g?.fix) return;
   const before = S.report.failing;
-  S.undo.push(S.invoices);
-  S.invoices = applyFix(S.invoices, g);
+  S.applied.push({ source: g.source, record: g.record, field: g.field, fix: { ...g.fix } });
+  S.invoices = rebuild();
   S.report = validateBatch(S.invoices);
   const t = new Date();
   S.log.unshift({ time: t.toISOString().slice(0, 16).replace('T', ' '), who: 'Finance reviewer', text: `${SOURCES[g.source]} · ${g.record}: ${g.field} set to ${g.fix.value}`, cleared: before - S.report.failing });
@@ -1044,8 +1054,8 @@ function toast(t, label, fn) {
   el.classList.add('on'); clearTimeout(toast.h); toast.h = setTimeout(() => el.classList.remove('on'), label ? 6000 : 2600);
 }
 function undo() {
-  if (!S.undo.length) return;
-  S.invoices = S.undo.pop(); const l = S.log.shift();
+  if (!S.applied.length) return;
+  S.applied.pop(); S.invoices = rebuild(); const l = S.log.shift();
   S.log.unshift({ time: new Date().toISOString().slice(0, 16).replace('T', ' '), who: 'Finance reviewer', text: `Undone: ${l ? l.text : 'last change'}`, cleared: 0 });
   run(); toast('Change undone');
 }
@@ -1075,7 +1085,7 @@ function renderCompany() {
 function saveCompany() {
   const c = {}; document.querySelectorAll('[data-co]').forEach(el => { c[el.dataset.co] = el.value.trim(); });
   S.company = c; try { localStorage.setItem('pf-company', JSON.stringify(c)); } catch {}
-  S.invoices = applyCompany(S.raw, c); run(); toast('Company details applied to every invoice');
+  S.invoices = rebuild(); run(); toast('Company details applied to every invoice. Approved fixes kept.');
 }
 function finishImport(map) {
   const p = S.pending; if (!p) return;
@@ -1140,8 +1150,10 @@ document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('.tpl').forEach(b => b.onclick = () => dl('pint-ae-preflight-template.csv', invoicesToCSV(sampleInvoices().slice(0, 3)), 'text/csv'));
   $('#exp-csv').onclick = () => dl('invoices-corrected.csv', invoicesToCSV(S.invoices), 'text/csv');
   $('#exp-zip').onclick = () => {
-    const ok = S.invoices.filter(i => !S.report.findings.some(f => f.invoice === i.invoice_no));
-    if (!ok.length) return toast('No invoices are ready yet.');
+    const ready = S.invoices.filter(i => !S.report.findings.some(f => f.invoice === i.invoice_no));
+    const ok = ready.filter(i => String(i.currency).toUpperCase() === 'AED');
+    if (ready.length > ok.length) toast(`${ready.length - ok.length} foreign-currency invoices left out: XML export currently covers AED invoices only.`);
+    if (!ok.length) return ready.length ? null : toast('No invoices are ready yet.');
     dlBlob(`pint-ae-ready-${ok.length}.zip`, zip(ok.map(i => ({ name: `${i.invoice_no.replace(/[^\w.-]/g, '_')}.xml`, text: toUBL(i) }))));
   };
   $('#exp-report').onclick = () => dl(`readiness-report-${new Date().toISOString().slice(0, 10)}.html`, managerReport(), 'text/html');

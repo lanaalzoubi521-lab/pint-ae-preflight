@@ -30,7 +30,7 @@ export function parseCSV(text, delim = detectDelimiter(text)) {
       if (c === '"' && text[i + 1] === '"') { cell += '"'; i++; }
       else if (c === '"') q = false;
       else cell += c;
-    } else if (c === '"') q = true;
+    } else if (c === '"' && cell === '') q = true; // a quote opens a quoted cell only at its start; 12" stays literal
     else if (c === delim) { row.push(cell); cell = ''; }
     else if (c === '\n' || c === '\r') {
       if (c === '\r' && text[i + 1] === '\n') i++;
@@ -98,7 +98,7 @@ export const missingRequired = map => REQUIRED.filter(f => !map[f]);
 
 const AR_DIGITS = '٠١٢٣٤٥٦٧٨٩';
 export function normalizeNumber(v) {
-  let s = String(v ?? '').trim().replace(/[٠-٩]/g, d => AR_DIGITS.indexOf(d)).replace(/[\s ]/g, '');
+  let s = String(v ?? '').trim().replace(/[٠-٩]/g, d => AR_DIGITS.indexOf(d)).replace(/^(aed|dhs?|usd|sar|\$|د\.إ|درهم)\s*/i, '').replace(/\s*(aed|dhs?|usd|sar|درهم)$/i, '').replace(/[\s ]/g, '');
   if (!s) return '';
   if (/^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(s)) s = s.replace(/,/g, '');          // 1,234.50
   else if (/^-?\d{1,3}(\.\d{3})+(,\d+)?$/.test(s)) s = s.replace(/\./g, '').replace(',', '.'); // 1.234,50
@@ -116,7 +116,7 @@ export function rowsToInvoices(rows, mapping = null) {
     for (const f of NUMERIC) r[f] = normalizeNumber(r[f]);
     const key = r.invoice_no;
     let inv = map.get(key);
-    if (inv && (inv.buyer_name !== r.buyer_name || inv.invoice_date !== r.invoice_date)) { inv._duplicate = true; inv = null; }
+    if (inv && (inv.buyer_name !== r.buyer_name || inv.invoice_date !== r.invoice_date || inv.currency !== r.currency || inv.type_code !== r.type_code)) { inv._duplicate = true; inv = null; }
     if (!inv) {
       const head = {}; for (const f of HEADER_FIELDS) head[f] = r[f];
       inv = { ...head, lines: [] };
@@ -133,7 +133,7 @@ export function rowsToInvoices(rows, mapping = null) {
 // CSV out. Cells that a spreadsheet would run as a formula are neutralised.
 export function safeCell(v) {
   let s = String(v ?? '');
-  if (/^[=+\-@\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s)) s = "'" + s;
+  if (/^\s*[=+\-@\t\r＝＋－＠]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s)) s = "'" + s;
   return /[",\n\r;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 export function invoicesToCSV(invoices) {
@@ -146,7 +146,8 @@ export function invoicesToCSV(invoices) {
 const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
 const crc32 = b => { let c = 0xffffffff; for (let i = 0; i < b.length; i++) c = CRC[(c ^ b[i]) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
 export function zip(files) {
-  const enc = new TextEncoder(), parts = [], dir = [];
+  const enc = new TextEncoder(), parts = [], dir = [], used = new Set();
+  files = files.map(f => { let n = f.name, i = 2; while (used.has(n.toLowerCase())) n = f.name.replace(/(\.[^.]+)?$/, m => `-${i++}${m}`); used.add(n.toLowerCase()); return { ...f, name: n }; });
   let off = 0;
   for (const f of files) {
     const name = enc.encode(f.name), data = enc.encode(f.text), crc = crc32(data);

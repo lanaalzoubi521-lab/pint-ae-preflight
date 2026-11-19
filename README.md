@@ -26,7 +26,7 @@ On the demo data, 83 of 84 invoices fail. Ten root causes explain all of them, a
 | `ibr-132-ae` | TRN is 15 digits, starts with 1, ends with 03 |
 | `ibr-148-ae` | TIN is 10 digits, format 1XXXXXXXXX |
 | `ibr-128-ae` | UAE country subdivision is one of AUH, DXB, SHJ, UAQ, FUJ, AJM, RAK |
-| `ibr-143-ae` / `ibr-144-ae` | Seller and buyer address line, city, and subdivision present |
+| MoF fields 17, 18, 26, 27 · `ibr-143-ae` / `ibr-144-ae` | Seller and buyer address line and city present; a UAE address carries its emirate |
 | `ibr-127-ae` | Payment due date present when an amount is due (credit notes and deemed supply excepted) |
 | `ibr-154-ae` | Invoice transaction type code is exactly 8 flags of 0 and 1 |
 | `ibr-147-ae` | Line net amount equals quantity × (net price ÷ base quantity) |
@@ -39,16 +39,21 @@ On the demo data, 83 of 84 invoices fail. Ten root causes explain all of them, a
 | MoF fields 2, 6 | Dates are real dates in YYYY-MM-DD |
 | MoF field 4 | Currency is a 3-letter ISO 4217 code |
 | MoF field 22 | A UAE buyer's electronic address is their 10-digit TIN |
+| MoF fields 20, 29 | Country codes are two capital letters; lowercase `ae` is flagged and still checked as the UAE |
+| MoF fields 44, 45 | Gross price is not below net price; price base quantity is above zero |
+| Numbers | Quantities, prices and amounts must be plain decimals (no hex, no `Infinity`); line arithmetic is decimal-safe |
 | `ibr-055-ae` | A credit note references the invoice it corrects |
 
 Preflight is a pre-submission check on ERP data. The ASP still runs the full PINT AE schematron, and that remains the final word.
+
+**Current limits.** XML export covers AED invoices; foreign-currency invoices are checked but left out of the zip, because their AED line amounts and second tax total are not generated yet. Rules for special scenarios (free zone, deemed supply, margin scheme, disclosed agent, summary invoices) beyond the transaction-type format are not covered yet.
 
 ## Run it
 
 No dependencies. Node 18 or later.
 
 ```bash
-npm test          # 31 tests: rules, import edge cases, security
+npm test          # 41 tests: rules, import edge cases, security
 npm run build     # writes dist/index.html, one self-contained file
 ```
 

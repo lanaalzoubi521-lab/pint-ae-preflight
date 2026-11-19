@@ -80,3 +80,24 @@ test('zip has one entry per file and a valid end record', async () => {
   assert.equal(dv.getUint32(0, true), 0x04034b50); assert.equal(dv.getUint32(end, true), 0x06054b50); assert.equal(dv.getUint16(end + 10, true), 2);
 });
 test('XML escapes hostile text', () => { const i = base(); i.buyer_name = '<script>&"'; const x = toUBL(i); assert.ok(!x.includes('<script>')); assert.match(x, /&lt;script&gt;&amp;&quot;/); });
+
+test('lowercase country code still triggers UAE checks and is flagged', () => { const i = base(); i.buyer_country = 'ae'; i.buyer_trn = '123'; const r = rules(i); assert.ok(r.includes('ibr-132-ae')); assert.ok(r.includes('MF-29')); });
+test('VAT registered written as Y or TRUE', () => { for (const v of ['Y', 'TRUE', '1']) { const i = base(); i.buyer_vat_registered = v; i.buyer_trn = ''; assert.ok(rules(i).includes('MF-24'), v); } });
+test('zero base quantity, hex and Infinity are rejected', () => {
+  const i = base(); i.lines[0].base_qty = '0'; assert.ok(rules(i).includes('MF-45'));
+  const j = base(); j.lines[0].qty = '0x10'; assert.ok(rules(j).includes('MF-40'));
+  const k = base(); k.lines[0].qty = 'Infinity'; assert.ok(rules(k).includes('MF-40'));
+});
+test('net price above gross price is flagged', () => { const i = base(); i.lines[0].gross_price = '200.00'; assert.ok(rules(i).includes('MF-44')); });
+test('decimal-safe line arithmetic', () => { const i = base(); Object.assign(i.lines[0], { qty: '1', net_price: '1.005', gross_price: '1.005', line_net: '1.01' }); assert.ok(!rules(i).includes('ibr-147-ae')); });
+test('same number with another currency is a separate document', () => {
+  const row = { invoice_no: 'X-1', invoice_date: '2026-11-01', buyer_name: 'A', type_code: '380', qty: '1', net_price: '10', line_net: '10', tax_category: 'S', tax_rate: '5' };
+  assert.equal(rowsToInvoices([{ ...row, currency: 'AED' }, { ...row, currency: 'USD' }]).length, 2);
+});
+test('control characters are stripped from XML', () => { const i = base(); i.lines[0].item_name = 'Vase\u000B'; assert.ok(!toUBL(i).includes('\u000B')); });
+test('zip keeps duplicate names apart', async () => {
+  const u = new Uint8Array(await zip([{ name: 'A_1.xml', text: '1' }, { name: 'A_1.xml', text: '2' }]).arrayBuffer());
+  assert.ok(new TextDecoder().decode(u).includes('A_1-2.xml'));
+});
+test('formula guard catches leading spaces and full-width signs', () => { assert.equal(safeCell(' =1+1')[0], "'"); assert.equal(safeCell('＝1+1')[0], "'"); });
+test('literal inch mark does not swallow rows', () => { assert.equal(parseCSV('a,b,c\nA1,Pipe 12" PVC,1\nA2,Elbow,2\n').rows.length, 2); });
